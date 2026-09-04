@@ -14,7 +14,9 @@ import {
   PADDLE,
   PLASMA,
   PURGE,
+  REBOUND,
   SHAKE,
+  SNEEZE,
   RUN,
   SCORE,
   VFX,
@@ -72,6 +74,21 @@ export class GameScene extends Scene {
     this.speedMod = 1;
     this.zapped = false;
     this.rallyTime = 0;
+
+    /**
+     * Bricks the ball has destroyed since it last touched the paddle — the
+     * Sneeze combo counter.
+     *
+     * Kept here rather than read off the audio manager's own combo: that one is
+     * reset from inside the audio layer (paddleBounce, lifeLost, levelWin) to
+     * drive pitch escalation, and gameplay should not depend on when a sound
+     * system decides a streak is over.
+     */
+    this.rallyBreaks = 0;
+
+    /** Live floating labels. Ticked by _updateFloaters, owned by this scene. */
+    this._floaters = [];
+
     this.laserCooldown = 0;
 
     /** key -> { t, onEnd, powerId } */
@@ -466,8 +483,19 @@ export class GameScene extends Scene {
     if (invoke) entry.onEnd?.();
   }
 
+  /**
+   * End every timer, running its onEnd so no power-up state survives the wipe.
+   *
+   * Drains rather than snapshots. An onEnd is allowed to install a follow-up in
+   * the slot it just vacated — the Rebound's second stage does exactly that —
+   * and a single pass over a snapshot would leave that replacement ticking into
+   * the next life, where it would fire against a freshly reset paddle. The
+   * pass guard bounds a pathological chain; nothing in the game gets near it.
+   */
   _clearAllTimers() {
-    for (const key of [...this.timers.keys()]) this._endTimer(key, true);
+    for (let pass = 0; this.timers.size > 0 && pass < 8; pass++) {
+      for (const key of [...this.timers.keys()]) this._endTimer(key, true);
+    }
   }
 
   _updateTimers(dt) {
@@ -489,6 +517,65 @@ export class GameScene extends Scene {
     this._endTimer('width', false);
     this.paddle.setWidthState(state);
     this._setTimer('width', duration, () => this.paddle.setWidthState('normal'), state === 'big' ? 'big' : 'small');
+  }
+
+  /**
+   * The Rebound Effect — the chemical decongestant trap capsule.
+   *
+   * Two stages sharing the single 'width' slot, which is what makes it behave
+   * correctly against the rest of the table: a Wide or Narrow capsule caught
+   * mid-rebound goes through `setPaddleWidth`, which cancels this slot without
+   * invoking its onEnd, so the collapse is called off and the player is never
+   * left with two owners fighting over the bat width. That is also the intended
+   * escape hatch — the natural extract can rescue you from the rebound.
+   *
+   * Stage two is installed from stage one's onEnd. That is safe with the
+   * existing wheel: `_updateTimers` walks a snapshot of the map and `_endTimer`
+   * deletes the entry before calling onEnd, so the replacement lands in the map
+   * without being decremented a second time in the same frame.
+   */
+  reboundEffect() {
+    this._endTimer('width', false);
+
+    // Instant relief: the widest the bat ever gets. Eased, like every other
+    // width change, because this stage is supposed to feel earned.
+    this.paddle.setWidthState(REBOUND.surgeWidth);
+
+    this._setTimer('width', REBOUND.surge, () => this._reboundCrash(), 'rebound');
+  }
+
+  /** Rhinitis medicamentosa: the relief expires narrower than it began. */
+  _reboundCrash() {
+    // Reachable from _clearAllTimers during a death or a level change. Restore
+    // the neutral width and install nothing — punishing a paddle that is about
+    // to be reset just leaks a timer into the next life.
+    if (this.state !== 'play' && this.state !== 'serve') {
+      this.paddle.setWidthState('normal');
+      return;
+    }
+
+    // Snapped, not eased. See Paddle.setWidthState.
+    this.paddle.setWidthState(REBOUND.crashWidth, true);
+
+    this.ctx.audio.powerUp(false);
+    this.triggerShake(SHAKE.packetHit.duration, SHAKE.packetHit.intensity);
+
+    this.particles.burst(this.paddle.x, this.paddle.y, {
+      count: 16,
+      color: 0xd6202f,
+      speed: 150,
+      life: 0.5,
+      size: 1,
+      soft: true,
+    });
+
+    this._floatText('REBOUND!', this.paddle.x, this.paddle.top - 34, 0xd6202f, { size: 18 });
+
+    // Same slot again, so the recovery stays cancellable by any width capsule
+    // the player can still reach with a 34px bat. Reported to the HUD as
+    // 'small': that icon already means "your paddle is narrow", and the player
+    // does not need a third piece of iconography to be told so.
+    this._setTimer('width', REBOUND.crash, () => this.paddle.setWidthState('normal'), 'small');
   }
 
   setPaddleMode(mode, duration) {
@@ -594,6 +681,7 @@ export class GameScene extends Scene {
   _serve() {
     this.state = 'serve';
     this.rallyTime = 0;
+    this.rallyBreaks = 0;
 
     for (const ball of this.balls) ball.destroy({ children: true });
     this.balls.length = 0;
@@ -654,6 +742,7 @@ export class GameScene extends Scene {
     this._updateCapsules(dt);
     this._updatePlasmaTrails(dt);
     this.particles.update(dt);
+    this._updateFloaters(dt);
 
     if (this.paddle.corrupted) this.paddle.updateGlitch(dt);
     this._updateShake(dt);
@@ -790,6 +879,10 @@ export class GameScene extends Scene {
 
     ball.y = p.top - r - 0.5;
 
+    // The rally is over the moment the ball comes home, however it is received.
+    // Grab counts: the ball is on the bat, the streak has been interrupted.
+    this.rallyBreaks = 0;
+
     if (p.mode === 'sticky') {
       ball.stuckOffset = clamp(ball.x - p.x, -p.halfWidth + 4, p.halfWidth - 4);
       this.ctx.audio.paddleBounce();
@@ -828,6 +921,14 @@ export class GameScene extends Scene {
 
       const result = this.brickField.damage(brick, 1, { fire: ball.fire });
       this._resolveBrickResult(result, brick, ball.x, ball.y);
+
+      // Counted here rather than inside _resolveBrickResult, which the lasers
+      // also call: the reflex is built by the ball's unbroken run at the wall,
+      // and letting turret fire feed it would make it trivial to farm.
+      if (result.destroyed.length > 0) {
+        this.rallyBreaks += result.destroyed.length;
+        if (this.rallyBreaks >= SNEEZE.threshold) this._triggerSneeze();
+      }
 
       // Through-ball ignores anything it can break; fire ignores what it burned.
       const passes =
@@ -1170,8 +1271,10 @@ export class GameScene extends Scene {
     this._clearCapsules();
     this._clearLasers();
     this._clearPackets();
+    this._clearFloaters();
     this.speedMod = 1;
     this.zapped = false;
+    this.rallyBreaks = 0;
 
     // Losing a ball already costs a life; carrying the corruption debuff into
     // the next one would compound the punishment.
@@ -1266,6 +1369,105 @@ export class GameScene extends Scene {
     this.message.visible = false;
   }
 
+  /* ------------------------------------------------------------- sneeze -- */
+
+  /**
+   * The trigeminal reflex.
+   *
+   * Fires once the ball has broken SNEEZE.threshold bricks without returning to
+   * the paddle, then resets the counter so a genuinely long rally can sneeze
+   * again every eight breaks.
+   *
+   * Nothing here removes a brick. Multi-hit bricks give up one hit and
+   * single-hit bricks — which have none to give — only fade, so the reflex can
+   * never clear the last brick and end a level on its own, and
+   * `brickField.remaining` is left exactly as it was for the clear check.
+   *
+   * Safe to call from inside a collision substep: it mutates `hits`, `alpha`
+   * and the crack sprite, and touches neither the grid array nor `removed`, so
+   * the generator `_collideBricks` is iterating stays valid.
+   */
+  _triggerSneeze() {
+    this.rallyBreaks = 0;
+
+    this.triggerShake(SHAKE.sneeze.duration, SHAKE.sneeze.intensity);
+    this.ctx.audio.explosion();
+
+    for (const brick of this.brickField.all()) {
+      // Metal is not mucus, and an invisible brick stays hidden — revealing the
+      // wall's secrets is a level-design decision, not a side effect of a combo.
+      if (!brick.breakable || brick.hidden) continue;
+
+      if (brick.hits > SNEEZE.loosen) {
+        brick.hits -= SNEEZE.loosen;
+        brick.refreshDamage();
+      } else {
+        brick.alpha = SNEEZE.loosenedAlpha;
+      }
+    }
+
+    // One puff for the whole reflex, not one per brick. The particle pool is
+    // hard-capped (VFX.max), so a burst per brick would drain the budget and
+    // starve every impact effect on screen for the next second.
+    this.particles.burst(this.paddle.x, this.paddle.top - 12, {
+      count: 24,
+      color: SNEEZE.color,
+      speed: 270,
+      life: 0.55,
+      size: 1.1,
+      soft: true,
+    });
+
+    this._floatText(SNEEZE.label, this.paddle.x, this.paddle.top - 46, SNEEZE.color, { size: 24 });
+  }
+
+  /* ------------------------------------------------------ floating text -- */
+
+  /**
+   * A short-lived label that rises and fades at a point on the field.
+   *
+   * Deliberately not `_flashMessage`. That one drives the single centred
+   * message label, which the state machine also owns for GET READY / BALL LOST
+   * — a sneeze mid-rally would steal it, and the deferred `_hideMessage` it
+   * queues would then blank whatever the state machine posted next.
+   *
+   * Parented to `gameContainer`, so the label rides the shake it just fired.
+   */
+  _floatText(text, x, y, color = 0xffffff, { size = 22, life = 1.1, rise = 44 } = {}) {
+    const label = makeText(text, { size, color, anchor: 0.5, title: true });
+    label.position.set(clamp(x, FIELD.left + 48, FIELD.right - 48), y);
+
+    this.gameContainer.addChild(label);
+    this._floaters.push({ label, t: 0, life, rise, y0: y });
+  }
+
+  _updateFloaters(dt) {
+    for (let i = this._floaters.length - 1; i >= 0; i--) {
+      const f = this._floaters[i];
+      f.t += dt;
+
+      const k = f.t / f.life;
+
+      if (k >= 1) {
+        f.label.destroy();
+        this._floaters.splice(i, 1);
+        continue;
+      }
+
+      f.label.y = f.y0 - f.rise * k;
+      // Hold at full opacity for the first third so the word is actually read,
+      // then fade over the remainder.
+      f.label.alpha = k < 0.34 ? 1 : 1 - (k - 0.34) / 0.66;
+      // A single pop on entry, settling back to 1.
+      f.label.scale.set(1 + Math.sin(Math.min(1, k * 4.5) * Math.PI) * 0.2);
+    }
+  }
+
+  _clearFloaters() {
+    for (const f of this._floaters) f.label.destroy();
+    this._floaters.length = 0;
+  }
+
   /** Frame-driven delay so pausing also pauses pending transitions. */
   _wait(seconds, fn) {
     this._pending.push({ t: seconds, fn });
@@ -1357,6 +1559,7 @@ export class GameScene extends Scene {
     this.packets.length = 0;
     this._offVisibility?.();
     this._destroyPauseMenu();
+    this._clearFloaters();
     this.ctx.audio.setMuted(false);
     this.timers.clear();
     this._pending.length = 0;

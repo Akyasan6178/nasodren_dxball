@@ -71,7 +71,12 @@ export const BALL = {
 export const PADDLE = {
   y: 442,
   height: 14,
-  widths: { small: 54, normal: 88, big: 132 },
+  /**
+   * `tiny` exists only for the Rebound Effect. It is deliberately narrower than
+   * anything the original power-down table could reach: the crash has to read as
+   * a different category of punishment from an ordinary Narrow Paddle.
+   */
+  widths: { tiny: 34, small: 54, normal: 88, big: 132 },
   keySpeed: 560,
   /** Pointer smoothing: 1 == instant (pixel-perfect), lower == softer. */
   pointerLerp: 1,
@@ -244,6 +249,52 @@ export const PURGE = {
   bossClearScore: 5000,
 };
 
+/* ============================================================ nasodren === */
+
+/**
+ * The Rebound Effect — the chemical decongestant trap.
+ *
+ * Two stages on a single timer slot. `surge` is the illusion of instant relief:
+ * the paddle jumps to its widest and the capsule reads as a good pickup.
+ * `crash` is rhinitis medicamentosa — the relief expires into a bat narrower
+ * than the player has ever had.
+ *
+ * The surge is short on purpose. Long enough to be enjoyed, too short to be
+ * used: the player registers the gift and loses it in the same breath, which is
+ * the whole argument the capsule exists to make.
+ */
+export const REBOUND = {
+  /** Seconds of fake relief. */
+  surge: 2,
+  /** Seconds spent paying for it. */
+  crash: 9,
+  /** Width states each stage drives. Both must be keys of PADDLE.widths. */
+  surgeWidth: 'big',
+  crashWidth: 'tiny',
+};
+
+/**
+ * The Sneeze — the trigeminal reflex.
+ *
+ * `threshold` bricks destroyed by the ball in one rally, with no paddle touch
+ * in between, fires the reflex: the screen shakes and every brick still
+ * standing is loosened.
+ *
+ * Loosening never destroys. A sneeze shifts mucus, it does not clear a cavity,
+ * so a multi-hit brick surrenders one hit and a single-hit brick — which has no
+ * hit to spare — only fades. Keeping the reflex non-lethal also keeps
+ * `brickField.remaining` untouched, which the level-clear check depends on.
+ */
+export const SNEEZE = {
+  threshold: 8,
+  /** Hits removed from each surviving multi-hit brick. */
+  loosen: 1,
+  /** Alpha applied to bricks with nothing left to give. */
+  loosenedAlpha: 0.72,
+  label: 'ACHOO!',
+  color: 0x86e05a,
+};
+
 /* ============================================================= effects === */
 
 /**
@@ -258,6 +309,8 @@ export const SHAKE = {
   packetHit: { duration: 0.2, intensity: 8 },
   shieldBreak: { duration: 0.1, intensity: 3.5 },
   bossDefeat: { duration: 0.9, intensity: 18 },
+  /** Trigeminal reflex. Long and broad — it is a whole-body event, not an impact. */
+  sneeze: { duration: 0.45, intensity: 11 },
 };
 
 /** Paddle corruption glitch. */

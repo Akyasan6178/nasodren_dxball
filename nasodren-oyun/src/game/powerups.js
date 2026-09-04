@@ -21,6 +21,18 @@ export const POWERUPS = [
   { id: 'life',     letter: 'E', label: 'Extra Life',   good: true,  weight: 3,  color: 0xff63c1 },
   { id: 'warp',     letter: 'W', label: 'Level Warp',   good: true,  weight: 2,  color: 0xffffff },
 
+  /**
+   * The Rebound Effect. Filed with the good capsules on purpose.
+   *
+   * `good: true` is not a mistake and not a balance decision — it is the
+   * mechanic. It drives the pickup jingle and the banner, so the capsule
+   * congratulates the player on catching it, exactly as a chemical spray
+   * announces two seconds of relief before rhinitis medicamentosa arrives. The
+   * red body is the only tell, and it is a fair one: every other red thing in
+   * this game hurts.
+   */
+  { id: 'rebound',  letter: 'R', label: 'Decongestant',  good: true,  weight: 6,  color: 0xd6202f },
+
   { id: 'small',    letter: 'N', label: 'Narrow Paddle', good: false, weight: 7, color: 0xb06cff },
   { id: 'fast',     letter: 'X', label: 'Fast Ball',     good: false, weight: 6, color: 0xff9130 },
   { id: 'zap',      letter: 'Z', label: 'Zap',           good: false, weight: 4, color: 0xff63c1 },
@@ -241,6 +253,12 @@ export function applyPowerUp(scene, def) {
 
     case 'warp':
       scene.warpLevel();
+      break;
+
+    case 'rebound':
+      // Two-stage: enlarge now, collapse in REBOUND.surge seconds. The scene
+      // owns the chaining because the scene owns the timer wheel.
+      scene.reboundEffect();
       break;
 
     case 'zap':

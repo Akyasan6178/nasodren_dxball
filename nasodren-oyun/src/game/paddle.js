@@ -81,9 +81,23 @@ export class Paddle extends Container {
     return this.y + this.h / 2;
   }
 
-  setWidthState(state) {
+  /**
+   * @param {'tiny'|'small'|'normal'|'big'} state
+   * @param {boolean} [snap] Skip the width ease and resize on this frame.
+   *
+   * The ease is what makes the bat feel physical, so it stays the default. The
+   * Rebound crash is the one caller that wants it gone: a collapse that takes a
+   * third of a second to arrive reads as the paddle deflating, and the player
+   * adapts to it. Snapped, it reads as the relief being withdrawn.
+   */
+  setWidthState(state, snap = false) {
     this.widthState = state;
     this.targetW = PADDLE.widths[state];
+
+    if (snap) {
+      this.w = this.targetW;
+      this.redraw();
+    }
   }
 
   setMode(mode) {

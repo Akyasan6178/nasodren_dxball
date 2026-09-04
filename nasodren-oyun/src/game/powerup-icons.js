@@ -166,6 +166,25 @@ const DRAWINGS = {
       .stroke({ width: 3.2, color: 0xffffff, cap: 'round', join: 'round' });
   },
 
+  /**
+   * Rebound: a relief spike that overshoots downward.
+   *
+   * Drawn as a trace rather than a paddle so it does not read as a sibling of
+   * the `big`/`small` icons — it is not a width power-up, it is a curve with a
+   * cliff in it. The dot pins the peak, which is the first thing to vanish when
+   * a thin stroke is scaled to twelve pixels.
+   */
+  rebound(g) {
+    g.moveTo(C - 15, C + 5)
+      .lineTo(C - 7, C + 5)
+      .lineTo(C - 2, C - 12)
+      .lineTo(C + 4, C + 13)
+      .lineTo(C + 15, C + 13)
+      .stroke({ width: 3.4, color: 0xffffff, cap: 'round', join: 'round' });
+
+    g.circle(C - 2, C - 12, 3.4).fill(0xffffff);
+  },
+
   /** Kill paddle. Built from solid shapes so it survives tinting at 12px. */
   death(g) {
     g.circle(C, C - 3, 11.5).fill(0xffffff);
