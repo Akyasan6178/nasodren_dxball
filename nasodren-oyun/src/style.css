@@ -1,10 +1,300 @@
+:root {
+  --bg: #05050b;
+  --accent: #35d0d8;
+  --ink: #eaf0ff;
+  --ink-dim: rgba(234, 240, 255, 0.5);
+  --ink-faint: rgba(234, 240, 255, 0.26);
+  --panel: rgba(255, 255, 255, 0.055);
+  --panel-line: rgba(255, 255, 255, 0.12);
+  --lift: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 30px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+}
+
 * {
-  margin: 0;
-  padding: 0;
+  box-sizing: border-box;
 }
 
 html,
 body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  background: #000;
+
+  background: var(--bg);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* `overflow: hidden` alone does not stop iOS Safari's rubber-band scroll once
+   the dynamic toolbar gets involved. Pinning the body does. */
+body {
+  position: fixed;
+  inset: 0;
+}
+
+/* Full-bleed mount for the canvas. Keep it padding-free. */
+#game-root {
+  position: fixed;
+  inset: 0;
+}
+
+#game-root canvas {
+  display: block;
+}
+
+/* ========================================================== ui layer ==== */
+
+.ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+
+  /* The inline critical CSS in index.html sets `display: none` on this element.
+     main.js adds `.is-ready` to <body> after the renderer's first frame, which
+     is the only thing that reveals it. Keeping the gate in one direction like
+     this means a missing or slow stylesheet can never flash the overlay. */
+  display: none;
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+
+body.is-ready .ui-layer {
+  display: block;
+}
+
+/* Fade the canvas in once, so the handoff from the loading text to the first
+   rendered frame reads as intentional rather than as a pop. */
+#game-root {
+  opacity: 0;
+  transition: opacity 260ms var(--ease);
+}
+
+body.is-ready #game-root {
+  opacity: 1;
+}
+
+/* ===================================================== mode switcher ==== */
+
+.mode {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+
+  appearance: none;
+  cursor: pointer;
+  padding: 5px;
+
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: var(--lift);
+
+  font-family: inherit;
+
+  /* Menu-only. SceneManager writes body[data-scene]; anything else hides it,
+     so the switcher can never sit on top of a live playfield. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 260ms var(--ease), transform 320ms var(--ease),
+    visibility 0s linear 260ms, border-color 200ms var(--ease);
+}
+
+body[data-scene="menu"] .mode {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity 260ms var(--ease), transform 320ms var(--ease),
+    visibility 0s, border-color 200ms var(--ease);
+}
+
+.mode:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.mode:active {
+  transform: scale(0.985);
+}
+
+.mode:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.mode__track {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  min-width: 190px;
+}
+
+.mode__thumb {
+  position: absolute;
+  inset: 0 50% 0 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 28%, transparent),
+    color-mix(in srgb, var(--accent) 12%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  transition: transform 340ms var(--ease), background 340ms var(--ease),
+    border-color 340ms var(--ease);
+}
+
+.mode__option {
+  position: relative;
+  z-index: 1;
+  padding: 9px 15px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  transition: color 260ms var(--ease);
+  white-space: nowrap;
+}
+
+.mode[aria-checked="false"] .mode__option[data-mode="classic"],
+.mode[aria-checked="true"] .mode__option[data-mode="turbo"] {
+  color: var(--ink);
+}
+
+.mode[aria-checked="true"] .mode__thumb {
+  transform: translateX(100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 210, 63, 0.3),
+    rgba(255, 210, 63, 0.13)
+  );
+  border-color: rgba(255, 210, 63, 0.5);
+}
+
+/* ================================================== rotate prompt ======= */
+
+/* The board is 4:3. On a phone held upright the letterboxed playfield collapses
+   to roughly a third of the screen, which is unplayable, so ask for landscape
+   instead of shipping a bad experience. Touch devices only: `pointer: coarse`
+   keeps it away from narrow desktop windows. */
+.rotate {
+  display: none;
+}
+
+@media (max-aspect-ratio: 3 / 4) and (pointer: coarse) {
+  body.is-ready .rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 16px;
+    padding: 32px;
+
+    background: var(--bg);
+    text-align: center;
+  }
+}
+
+.rotate__icon svg {
+  width: 54px;
+  height: 54px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  animation: tilt 2.4s var(--ease) infinite;
+}
+
+@keyframes tilt {
+  0%,
+  55%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25%,
+  40% {
+    transform: rotate(-90deg);
+  }
+}
+
+.rotate__text {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.rotate__sub {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+}
+
+/* ============================================================= boot ===== */
+
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  color: #6b6b8a;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+#boot[hidden] {
+  display: none;
+}
+
+/* ======================================================= adaptations ==== */
+
+@media (max-width: 480px) {
+  .mode__track {
+    min-width: 162px;
+  }
+  .mode__option {
+    padding: 8px 12px;
+    font-size: 10.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@supports not (backdrop-filter: blur(4px)) {
+  .mode {
+    background: rgba(10, 14, 28, 0.9);
+  }
 }
