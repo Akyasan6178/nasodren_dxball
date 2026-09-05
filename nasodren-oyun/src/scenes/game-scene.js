@@ -5,6 +5,7 @@ import { Scene } from '../core/scene-manager.js';
 import {
   BALL,
   CAPSULE,
+  CAVITY,
   CORRUPTION,
   DESIGN,
   FIELD,
@@ -17,14 +18,18 @@ import {
   REBOUND,
   SHAKE,
   SNEEZE,
+  TRIAL,
   RUN,
   SCORE,
+  MUCUS,
   VFX,
   WALL,
 } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
 import { TEX } from '../game/textures.js';
 import { BrickField } from '../game/bricks.js';
+import { SinusBackdrop, buildSinusGround } from '../game/sinus.js';
+import { NoseObstacles, SEPTUM_X } from '../game/cavity.js';
 import { Paddle } from '../game/paddle.js';
 import { Ball } from '../game/ball.js';
 import { Particles } from '../game/particles.js';
@@ -32,6 +37,7 @@ import {
   Capsule,
   POWERUP_BY_ID,
   PURGE_PROTOCOL,
+  REBOUND_CAPSULE,
   applyPowerUp,
   rollPowerUp,
 } from '../game/powerups.js';
@@ -63,6 +69,45 @@ export class GameScene extends Scene {
       lives: RUN.startingLives,
       nextExtraLife: SCORE.extraLifeEvery,
     };
+
+    /**
+     * Whether the Nasodren trial mechanics are live on this level.
+     *
+     * Resolved once, here, rather than tested against `levelIndex` at each call
+     * site: a scene plays exactly one level, so the answer cannot change while
+     * it runs, and the hot paths that consult it (one per destroyed brick) get
+     * a boolean read instead of a config lookup.
+     */
+    this.trialMechanics = TRIAL.levelIndex === null || this.levelIndex === TRIAL.levelIndex;
+
+    /**
+     * Capsules folded into this level's drop roll on top of the global table.
+     *
+     * Built once and reused for every roll, so spawning a capsule allocates
+     * nothing extra. Empty on a non-trial level, which makes `rollPowerUp`
+     * behave exactly as it did before the Rebound existed.
+     */
+    this._dropExtras = this.trialMechanics
+      ? [{ def: REBOUND_CAPSULE, weight: TRIAL.reboundWeight }]
+      : [];
+
+    /**
+     * The nose obstacles, or null on a level that does not carry them.
+     *
+     * The nose is no longer the playfield — FIELD is, on every level, the way
+     * it always was. This is a cluster of solid strokes standing in the middle
+     * of the board, tested after the walls and before the bricks.
+     *
+     * Resolved once, like `trialMechanics`, because a scene plays exactly one
+     * level. The hot path pays one null check per substep; the alternative, a
+     * config lookup per substep per ball, is on the busiest line in the game.
+     *
+     * A level opts in with `cavity: true`. The boss is refused it regardless:
+     * the Construct patrols a band straight through the aperture, so a flag
+     * added to that entry by mistake must not impale it. See CAVITY in
+     * config.js for why this is opt-in rather than global.
+     */
+    this.nose = this.level.cavity && !this.level.boss ? new NoseObstacles() : null;
 
     this.state = 'serve';
     this.paused = false;
@@ -133,6 +178,13 @@ export class GameScene extends Scene {
     this.particles = new Particles();
     this.brickField = new BrickField(this.level);
 
+    // Denominators for the two fullness ratios that drive the nose colour, one
+    // per cavity. Captured here because bricks only ever leave, so the counts at
+    // construction are the totals this level started with.
+    this.initialBrickCount = this._countBricksBySide();
+    this.remainingBricks = { ...this.initialBrickCount };
+    this._lastRemaining = this.brickField.remaining;
+
     this.capsuleLayer = new Container();
     this.laserLayer = new Container();
     this.ballLayer = new Container();
@@ -188,12 +240,20 @@ export class GameScene extends Scene {
   }
 
   _buildField() {
+    this.gameContainer.addChild(buildSinusGround());
+
+    // The nose sits above the flat ground and below everything that moves.
+    // The wall chrome is drawn *after* it, so the additive glow is painted over
+    // at the playfield edge rather than needing a mask — a mask here would cost
+    // a stencil push and pop on every single frame.
+    this.backdrop = new SinusBackdrop(this.reduceMotion, !!this.nose);
+    this.gameContainer.addChild(this.backdrop);
+
     const g = new Graphics();
 
-    g.rect(FIELD.left, FIELD.top, FIELD.right - FIELD.left, DESIGN.height - FIELD.top)
-      .fill(0x0a0a18);
-
-    // Side and top walls. These are also the collision surfaces.
+    // Side and top walls: structural chrome, and the collision surfaces. The
+    // nose floats clear of all three by well over a hundred pixels, so these
+    // are the boundary on every level again.
     const wallFill = { color: 0x232a4d };
     g.rect(0, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
     g.rect(DESIGN.width - WALL, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
@@ -743,11 +803,95 @@ export class GameScene extends Scene {
     this._updatePlasmaTrails(dt);
     this.particles.update(dt);
     this._updateFloaters(dt);
+    this._updateBackdrop(dt);
 
     if (this.paddle.corrupted) this.paddle.updateGlitch(dt);
     this._updateShake(dt);
 
     if (this.state === 'play' && this._levelBeaten()) this._completeLevel(false);
+  }
+
+  /**
+   * Count the live breakable bricks either side of the septum.
+   *
+   * Walked off `brickField.grid` rather than decremented as bricks die. There
+   * are four paths that destroy a brick — the ball, a laser, an explosive
+   * chain, the Purge — and a counter threaded through all four is a counter
+   * that will eventually be wrong on one of them, at which point a cavity
+   * either never cools or cools early and nobody can tell why. Recounting has
+   * no such failure mode.
+   *
+   * It is also cheaper than it looks. `_updateBackdrop` only calls this when
+   * `brickField.remaining` has actually changed, so it runs a handful of times
+   * per level rather than sixty times a second, and even then it is one pass
+   * over at most 182 cells.
+   *
+   * A brick is assigned by the centre of its own box, so a brick straddling the
+   * midline lands on the side it mostly sits in. Nothing in the shipped layouts
+   * straddles — column 6 is empty on every row, because the septum is in it.
+   */
+  _countBricksBySide() {
+    const side = { left: 0, right: 0 };
+
+    for (const row of this.brickField.grid) {
+      for (const brick of row) {
+        if (!brick || brick.removed || !brick.breakable) continue;
+        side[brick.centerX < SEPTUM_X ? 'left' : 'right']++;
+      }
+    }
+
+    return side;
+  }
+
+  /**
+   * Drive each cavity's colour from its own fullness ratio.
+   *
+   * ASYMMETRIC CLEARANCE. The two passages are tracked separately, so a player
+   * who chews through the right cluster watches the right nostril cool to cyan
+   * while the left is still inflamed. That is the whole point of the split:
+   * `ratio` is per side, `1` while that side is fully blocked and `0` once it
+   * is empty, and each side reaches the healthy end the moment its own last
+   * brick goes — not when the level does.
+   *
+   * The backdrop is handed `1 - ratio` because everything downstream — the ramp
+   * stops, the glow opacity, the throb — is authored as *clearance*, and
+   * flipping the sense here rather than in four places there keeps one
+   * convention through the whole chain.
+   *
+   * A side with no bricks of its own falls back to the level's overall ratio
+   * rather than reporting 0. Otherwise any layout that happens to put nothing
+   * in one passage would light that passage healthy-cyan from the first frame,
+   * which is a claim about the player's progress that they have not earned. A
+   * level with no bricks at all — the boss — holds both sides inflamed, which
+   * is the right read for the chronic encounter anyway.
+   *
+   * WHERE THE COLOUR MATHS LIVES, AND WHY IT IS NOT IN THIS FILE. The
+   * interpolation is in sinus.js, next to the drawing it feeds. Two reasons,
+   * and both are about correctness rather than tidiness. The ratios are not
+   * applied raw: each is eased toward over SINUS.ease seconds, because snapping
+   * a colour to the live brick count steps that half of the drawing on every
+   * break and reads as a flicker, while travelling toward it reads as
+   * inflammation subsiding — and those two eased values are per-frame state
+   * belonging to the thing being coloured. And each resulting colour drives
+   * three tints with a different lift on one of them, which is a fact about how
+   * the nose is drawn, not about how the level is going. This method owns the
+   * question; sinus.js owns the answer.
+   */
+  _updateBackdrop(dt) {
+    if (this._lastRemaining !== this.brickField.remaining) {
+      this._lastRemaining = this.brickField.remaining;
+      this.remainingBricks = this._countBricksBySide();
+    }
+
+    const total = this.initialBrickCount;
+    const overall = total.left + total.right > 0
+      ? (this.remainingBricks.left + this.remainingBricks.right) / (total.left + total.right)
+      : 1;
+
+    const ratio = (key) =>
+      total[key] > 0 ? this.remainingBricks[key] / total[key] : overall;
+
+    this.backdrop.update(dt, 1 - ratio('left'), 1 - ratio('right'));
   }
 
   /**
@@ -810,6 +954,10 @@ export class GameScene extends Scene {
       ball.step(sdt);
 
       this._collideWalls(ball);
+      // After the walls, before the bricks. A ball squeezed between a nose
+      // stroke and the field edge has to end the substep clear of the wall, and
+      // the wall is the surface that cannot be pushed back.
+      if (this.nose) this._collideNose(ball);
       this._collideBricks(ball);
       // Runs inside the same substep as the brick test, so a ball threading a
       // shield gap at full speed can't tunnel through a segment either.
@@ -823,6 +971,63 @@ export class GameScene extends Scene {
     }
   }
 
+  /**
+   * Bounce off the nose.
+   *
+   * The reflection is a plain mirror about the surface normal — `d - 2(d.n)n` —
+   * which is the right physics here precisely because the paddle is the only
+   * surface in this game that steers the ball. A bumper that added its own
+   * english would make the shape unreadable, and the shape is the point: the
+   * flare of each ala throws a shot back out toward the flanks, and the
+   * septum's rounded tip turns a shot up the midline into a run up one nostril
+   * or the other depending on which side of centre it caught.
+   *
+   * Reflecting is gated on the ball actually travelling into the surface.
+   * Without that test a ball resting against a curve flips its direction on
+   * every substep and buzzes along it, because the push-out and the mirror
+   * fight each other.
+   *
+   * The septum is louder than the lateral walls on purpose. It is the surface
+   * furthest from anything the player has an instinct for, and a bounce off the
+   * tip can send the ball somewhere genuinely surprising — so the hit needs to
+   * be unmistakably a hit and not a glitch. Same normal, same maths; more
+   * sparks, brighter flash, and the cartilage ping rather than the wall thud.
+   */
+  _collideNose(ball) {
+    const hit = this.nose.collide(ball.x, ball.y, ball.radius);
+    if (!hit) return;
+
+    ball.x += hit.nx * (hit.depth + CAVITY.skin);
+    ball.y += hit.ny * (hit.depth + CAVITY.skin);
+
+    const into = ball.dx * hit.nx + ball.dy * hit.ny;
+    if (into >= 0) return;
+
+    ball.setDirection(ball.dx - 2 * into * hit.nx, ball.dy - 2 * into * hit.ny);
+
+    const septum = hit.id === 'septum';
+    const impact = septum ? VFX.metalImpact : VFX.wallImpact;
+    const color = septum ? 0xd7f6ff : 0x9fe9ed;
+
+    if (septum) this.ctx.audio.metalPing();
+    else this.ctx.audio.wallBounce();
+
+    // Sparks spray back along the real surface normal, so a hit on the curve of
+    // an ala throws them along that curve rather than straight off a phantom
+    // vertical wall.
+    this.particles.sparks(ball.x, ball.y, hit.nx, hit.ny, {
+      count: impact.sparks,
+      color,
+      speed: impact.speed,
+    });
+    this.particles.flash(ball.x, ball.y, { color, size: impact.flash });
+  }
+
+  /**
+   * Ball against the playfield boundary: the rectangle, on every level.
+   *
+   * Called from inside the substep loop, so it cannot be tunnelled through.
+   */
   _collideWalls(ball) {
     const r = ball.radius;
     let hit = false;
@@ -925,7 +1130,10 @@ export class GameScene extends Scene {
       // Counted here rather than inside _resolveBrickResult, which the lasers
       // also call: the reflex is built by the ball's unbroken run at the wall,
       // and letting turret fire feed it would make it trivial to farm.
-      if (result.destroyed.length > 0) {
+      // Gated to the trial level (TRIAL in config.js). Leading with the boolean
+      // means every other level pays one register test per brick and nothing
+      // else — the counter is not even maintained where it cannot fire.
+      if (this.trialMechanics && result.destroyed.length > 0) {
         this.rallyBreaks += result.destroyed.length;
         if (this.rallyBreaks >= SNEEZE.threshold) this._triggerSneeze();
       }
@@ -1074,7 +1282,9 @@ export class GameScene extends Scene {
 
     if (result.damaged) {
       audio.brickHit(brick.row);
-      this.particles.burst(x, y, { count: 5, color: 0xffffff, speed: 80, life: 0.24, size: 0.6 });
+      // Tinted with the fluid palette rather than white: a partial hit is the
+      // first fluid working loose, not a chip of stone.
+      this.particles.burst(x, y, { count: 5, color: 0x9ff4f8, speed: 80, life: 0.24, size: 0.6 });
       return;
     }
 
@@ -1088,6 +1298,8 @@ export class GameScene extends Scene {
 
       if (info.kind === 'explosive') {
         explosive = true;
+        // The blast keeps its shards — an explosive brick is a rupture, and the
+        // droplets that follow are what the rupture released.
         this.particles.debris(info.x, info.y, {
           color: 0xffd23f,
           count: VFX.blast.count,
@@ -1096,9 +1308,12 @@ export class GameScene extends Scene {
           spin: VFX.blast.spin,
           size: 1.3,
         });
+        this.particles.droplets(info.x, info.y, { count: MUCUS.count + 5, speed: MUCUS.speed * 1.5, size: 1.2 });
         this.particles.flash(info.x, info.y, { color: 0xfff0c2, size: 1.4, life: 0.24 });
       } else {
-        this.particles.debris(info.x, info.y, { color: info.color });
+        this.particles.droplets(info.x, info.y);
+        // The flash stays on the brick's own colour: it is the moment of the
+        // break, before the fluid it was holding has gone anywhere.
         this.particles.flash(info.x, info.y, { color: info.color, size: 0.5 });
       }
 
@@ -1116,7 +1331,7 @@ export class GameScene extends Scene {
   // --- capsules ------------------------------------------------------------
 
   _spawnCapsule(x, y) {
-    const capsule = new Capsule(rollPowerUp(), x, y);
+    const capsule = new Capsule(rollPowerUp(this._dropExtras), x, y);
     this.capsuleLayer.addChild(capsule);
     this.capsules.push(capsule);
   }

@@ -1,6 +1,6 @@
 import { Container, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
-import { VFX } from './config.js';
+import { MUCUS, VFX } from './config.js';
 import { TEX } from './textures.js';
 import { cosmeticRandom } from '../core/rng.js';
 
@@ -115,12 +115,25 @@ export class Particles extends Container {
       spread = Math.PI * 2,
       direction = 0,
       drag = 0.9,
-      spin = 0,
+      /**
+       * Peak tumble, rad/s. The default reproduces what the old `spin = 0`
+       * fallback produced, so every existing caller is unchanged — but 0 now
+       * means a particle that does not rotate at all, which it previously could
+       * not express. Droplets need that: a spinning droplet is a spark.
+       */
+      spin = 6,
       soft = false,
       texture = null,
       shards = false,
       bloom = false,
       alpha = 1,
+      /**
+       * Per-particle tint pool. When set, each particle draws its own colour
+       * from this list instead of the whole burst sharing `color`.
+       */
+      colors = null,
+      /** Horizontal scale factor. Below 1 stretches the particle vertically. */
+      aspect = 1,
     } = opts;
 
     const layerName = bloom ? 'bloom' : 'base';
@@ -139,13 +152,16 @@ export class Particles extends Container {
 
       p.x = x;
       p.y = y;
-      p.tint = color;
+      p.tint = colors ? colors[(cosmeticRandom() * colors.length) | 0] : color;
       p.alpha = alpha;
-      p.rotation = cosmeticRandom() * Math.PI * 2;
+      p.aspect = aspect;
+      // A droplet that does not tumble must not start at a random angle either,
+      // or the vertical stretch points in a different direction on each one.
+      p.rotation = spin === 0 ? 0 : cosmeticRandom() * Math.PI * 2;
 
       p.vx = Math.cos(angle) * spd;
       p.vy = Math.sin(angle) * spd;
-      p.spin = spin ? (cosmeticRandom() - 0.5) * 2 * spin : (cosmeticRandom() - 0.5) * 12;
+      p.spin = (cosmeticRandom() - 0.5) * 2 * spin;
       p.gravity = gravity;
       p.drag = drag;
 
@@ -205,6 +221,7 @@ export class Particles extends Container {
     p.y = y;
     p.tint = color;
     p.alpha = 1;
+    p.aspect = 1;
     p.rotation = 0;
 
     p.vx = 0;
@@ -222,6 +239,40 @@ export class Particles extends Container {
     p.maxLife = life;
 
     this.active.push(p);
+  }
+
+  /**
+   * Mucus drainage: a brick breaking down into fluid that falls out of the
+   * cavity.
+   *
+   * Emitted upward through a narrow cone so the fluid is thrown clear of the
+   * break before gravity takes it — a downward-only emission looks like the
+   * brick leaking, an arc looks like it bursting. `drag` is near 1 so the fall
+   * accelerates the whole way instead of settling into a drift, and `spin: 0`
+   * holds every droplet upright so the vertical stretch reads as surface
+   * tension rather than a smear.
+   *
+   * Routed to the bloomed layer, which is where the wet highlight comes from.
+   */
+  droplets(x, y, { count = MUCUS.count, speed = MUCUS.speed, size = MUCUS.size, colors = MUCUS.colors } = {}) {
+    this.burst(x, y, {
+      count,
+      colors,
+      speed,
+      speedVariance: 0.85,
+      life: MUCUS.life,
+      lifeVariance: 0.5,
+      size,
+      endScale: 0.42,
+      gravity: MUCUS.gravity,
+      drag: 0.985,
+      spin: 0,
+      aspect: MUCUS.aspect,
+      spread: Math.PI * 0.95,
+      direction: -Math.PI / 2,
+      soft: true,
+      bloom: true,
+    });
   }
 
   /**
@@ -271,7 +322,11 @@ export class Particles extends Container {
       // t runs 1 -> 0 over the particle's life.
       const t = p.life / p.maxLife;
       p.alpha = p.alphaFrom * t;
-      p.scale.set(p.scaleTo + (p.scaleFrom - p.scaleTo) * t);
+
+      // One extra multiply against the old uniform set. Everything that is not
+      // a droplet carries aspect 1, so the shape is untouched.
+      const sc = p.scaleTo + (p.scaleFrom - p.scaleTo) * t;
+      p.scale.set(sc * p.aspect, sc);
     }
   }
 

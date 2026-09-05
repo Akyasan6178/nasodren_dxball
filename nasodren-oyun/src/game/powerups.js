@@ -21,18 +21,6 @@ export const POWERUPS = [
   { id: 'life',     letter: 'E', label: 'Extra Life',   good: true,  weight: 3,  color: 0xff63c1 },
   { id: 'warp',     letter: 'W', label: 'Level Warp',   good: true,  weight: 2,  color: 0xffffff },
 
-  /**
-   * The Rebound Effect. Filed with the good capsules on purpose.
-   *
-   * `good: true` is not a mistake and not a balance decision — it is the
-   * mechanic. It drives the pickup jingle and the banner, so the capsule
-   * congratulates the player on catching it, exactly as a chemical spray
-   * announces two seconds of relief before rhinitis medicamentosa arrives. The
-   * red body is the only tell, and it is a fair one: every other red thing in
-   * this game hurts.
-   */
-  { id: 'rebound',  letter: 'R', label: 'Decongestant',  good: true,  weight: 6,  color: 0xd6202f },
-
   { id: 'small',    letter: 'N', label: 'Narrow Paddle', good: false, weight: 7, color: 0xb06cff },
   { id: 'fast',     letter: 'X', label: 'Fast Ball',     good: false, weight: 6, color: 0xff9130 },
   { id: 'zap',      letter: 'Z', label: 'Zap',           good: false, weight: 4, color: 0xff63c1 },
@@ -74,21 +62,76 @@ export const PURGE_PROTOCOL = {
   color: 0x7cf9ff,
 };
 
+/**
+ * The Rebound Effect — the chemical decongestant trap.
+ *
+ * Deliberately NOT a member of POWERUPS, for the same reason Purge Protocol is
+ * not: that array is what `rollPowerUp` weights over and what TOTAL_WEIGHT is
+ * computed from, so an entry here would shift the odds of every other capsule
+ * in all thirteen levels. Sitting outside it, the Rebound can be folded into
+ * the roll by whoever is running the level — currently the trial level only,
+ * see TRIAL in config.js — at whatever weight that caller wants, and levels
+ * that do not ask for it keep the original drop mix exactly.
+ *
+ * `good: true` is not a mistake and not a balance decision — it is the
+ * mechanic. It drives the pickup jingle and the catch banner, so the capsule
+ * congratulates the player on catching it, exactly as a chemical spray
+ * announces two seconds of relief before rhinitis medicamentosa arrives. The
+ * red body is the only tell, and it is a fair one: every other red thing in
+ * this game hurts.
+ *
+ * The `weight` here is a floor, not the value used: callers pass the weight
+ * they want alongside the definition.
+ */
+export const REBOUND_CAPSULE = {
+  id: 'rebound',
+  letter: 'R',
+  label: 'Decongestant',
+  good: true,
+  weight: 0,
+  color: 0xd6202f,
+};
+
 export const POWERUP_BY_ID = Object.fromEntries(POWERUPS.map((p) => [p.id, p]));
 
 // Registered for lookups (HUD icons, timers) without joining the drop table.
 POWERUP_BY_ID[PURGE_PROTOCOL.id] = PURGE_PROTOCOL;
 POWERUP_BY_ID[FIREBALL.id] = FIREBALL;
+POWERUP_BY_ID[REBOUND_CAPSULE.id] = REBOUND_CAPSULE;
 
 const TOTAL_WEIGHT = POWERUPS.reduce((sum, p) => sum + p.weight, 0);
 
-/** Weighted pick from the table. */
-export function rollPowerUp() {
-  let roll = Math.random() * TOTAL_WEIGHT;
+/** Shared empty pool, so the common no-extras call allocates nothing. */
+const NO_EXTRAS = Object.freeze([]);
+
+/**
+ * Weighted pick from the table, plus any capsules the current level adds.
+ *
+ * `extras` lets a level fold in a definition that is not part of the global
+ * drop mix, at a weight of its own choosing, without that weight touching the
+ * odds anywhere else. Passing nothing reproduces the original roll exactly:
+ * same table, same TOTAL_WEIGHT, same distribution.
+ *
+ * @param {ReadonlyArray<{def: object, weight: number}>} [extras]
+ */
+export function rollPowerUp(extras = NO_EXTRAS) {
+  let total = TOTAL_WEIGHT;
+  for (const e of extras) total += e.weight;
+
+  let roll = Math.random() * total;
+
   for (const p of POWERUPS) {
     roll -= p.weight;
     if (roll <= 0) return p;
   }
+
+  // Extras are drawn from the tail of the range, so they only ever come up on a
+  // roll the base table could not have consumed.
+  for (const e of extras) {
+    roll -= e.weight;
+    if (roll <= 0) return e.def;
+  }
+
   return POWERUPS[0];
 }
 
