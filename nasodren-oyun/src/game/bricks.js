@@ -1,5 +1,5 @@
 import { Container, Sprite } from 'pixi.js';
-import { BRICK_H, BRICK_W, COLORS, GRID, SCORE } from './config.js';
+import { BRICK, BRICK_H, BRICK_W, COLORS, GRID, SCORE } from './config.js';
 import { TEX, textureKeyFor } from './textures.js';
 
 /**
@@ -18,14 +18,45 @@ const CHAR_MAP = {
   X: { kind: 'explosive', hits: 1, points: SCORE.explosive },
   M: { kind: 'metal', hits: Infinity, points: 0, breakable: false },
   I: { kind: 'invisible', hits: 1, points: SCORE.brick * 1.4, hidden: true },
+
+  /**
+   * Shape variants. A standard one-hit cell in a smaller box, worth the same:
+   * these exist to break up the silhouette, not to change what a break is
+   * worth, and paying less for a small clump would quietly push players toward
+   * ignoring exactly the cells that make the layout look congested.
+   *
+   * `<` and `>` hug the left and right edge of their cell, `o` is a small
+   * square in the middle of it. Read the characters as pictures of where the
+   * mucus sits in the cell — that is what makes a hand-authored layout legible.
+   */
+  '<': { kind: 'standard', hits: 1, points: SCORE.brick, shape: 'halfLeft' },
+  '>': { kind: 'standard', hits: 1, points: SCORE.brick, shape: 'halfRight' },
+  o: { kind: 'standard', hits: 1, points: SCORE.brick, shape: 'small' },
 };
+
+/**
+ * A stable pseudo-random value in [-1, 1] for this cell and channel.
+ *
+ * Deterministic on purpose — see BRICK.scatter in config.js. An integer hash
+ * rather than a seeded PRNG because there is nothing to carry between calls:
+ * each cell asks once, at construction, and must get the same answer on every
+ * load, in every session, on every machine.
+ */
+function cellNoise(col, row, channel) {
+  let h = (col * 374761393 + row * 668265263 + channel * 2246822519) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h & 0xffff) / 32768 - 1;
+}
 
 export class Brick extends Sprite {
   constructor(spec, col, row) {
     const colorIndex = spec.colorIndex ?? row % COLORS.length;
-    super(TEX[textureKeyFor(spec.kind, colorIndex)]);
+    const shape = spec.shape ?? 'full';
+    super(TEX[textureKeyFor(spec.kind, colorIndex, shape)]);
 
     this.kind = spec.kind;
+    this.shape = shape;
     this.colorIndex = colorIndex;
     this.color = COLORS[colorIndex];
     this.maxHits = spec.hits;
@@ -38,13 +69,38 @@ export class Brick extends Sprite {
     this.col = col;
     this.row = row;
 
-    // Cached AABB — collision reads these every substep, so never recompute.
-    this.bx = GRID.x + col * GRID.cellW + GRID.gap / 2;
-    this.by = GRID.y + row * GRID.cellH + GRID.gap / 2;
-    this.bw = BRICK_W;
-    this.bh = BRICK_H;
+    /**
+     * Cached AABB — collision reads these every substep, so never recompute.
+     *
+     * LOCKED TO THE GRID, and deliberately out of step with where the sprite is
+     * drawn. The cell keeps its exact grid box however far the artwork is
+     * scattered: a bounce off a clump is a bounce off an axis-aligned rectangle
+     * at a position the ball's cell lookup can derive arithmetically, which is
+     * what keeps `BrickField.candidates` constant-time and what keeps the
+     * rebound predictable. The mess is a costume, not a hitbox.
+     */
+    const box = BRICK.shapes[shape];
+    this.bw = BRICK_W * box.w;
+    this.bh = BRICK_H * box.h;
+    this.bx = GRID.x + col * GRID.cellW + GRID.gap / 2 + (BRICK_W - this.bw) * box.align;
+    this.by = GRID.y + row * GRID.cellH + GRID.gap / 2 + (BRICK_H - this.bh) * 0.5;
 
-    this.position.set(this.bx, this.by);
+    /**
+     * Where the cell is actually drawn: its grid centre, nudged and tilted.
+     *
+     * Anchored at 0.5 so the tilt turns about the middle rather than swinging
+     * the cell out of its own column. `visualX`/`visualY` are published because
+     * every effect the break spawns has to come from the artwork the player was
+     * looking at — a puff of petals appearing four pixels off the clump that
+     * produced them reads as a bug, and it is the only thing the scatter can
+     * plausibly break.
+     */
+    this.visualX = this.bx + this.bw / 2 + cellNoise(col, row, 1) * BRICK.scatter;
+    this.visualY = this.by + this.bh / 2 + cellNoise(col, row, 2) * BRICK.scatter;
+
+    this.anchor.set(0.5);
+    this.position.set(this.visualX, this.visualY);
+    this.rotation = cellNoise(col, row, 3) * BRICK.tilt;
 
     this.crack = null;
 
@@ -64,7 +120,7 @@ export class Brick extends Sprite {
     if (!this.hidden) return;
     this.hidden = false;
     this.alpha = 1;
-    this.texture = TEX[textureKeyFor('standard', this.colorIndex)];
+    this.texture = TEX[textureKeyFor('standard', this.colorIndex, this.shape)];
   }
 
   /** Show accumulated damage on multi-hit bricks. */
@@ -74,6 +130,10 @@ export class Brick extends Sprite {
 
     if (!this.crack) {
       this.crack = new Sprite(TEX.crack1);
+      // The parent is anchored at 0.5, so a child at the origin sits on the
+      // cell's centre. The crack texture is cell-sized, so it needs the same
+      // anchor to line up rather than hanging off one corner.
+      this.crack.anchor.set(0.5);
       this.addChild(this.crack);
     }
     this.crack.texture = taken >= 2 ? TEX.crack2 : TEX.crack1;
@@ -82,8 +142,10 @@ export class Brick extends Sprite {
 
   snapshot() {
     return {
-      x: this.centerX,
-      y: this.centerY,
+      // The scattered position, not the grid one: every particle, flash and
+      // capsule this break spawns has to come from where the cell was drawn.
+      x: this.visualX,
+      y: this.visualY,
       color: this.kind === 'metal' ? 0x8a92a8 : this.color,
       kind: this.kind,
       points: this.points,

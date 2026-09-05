@@ -30,6 +30,74 @@ export const GRID = {
   y: FIELD.top + 16,
 };
 
+/**
+ * Mucus cells — what the bricks became.
+ *
+ * The board is nothing but sweeping neon curves now, and a grid of hard-edged
+ * arcade rectangles sitting in the middle of that reads as two different games
+ * layered on top of each other. Rounding the cells and dropping them under full
+ * opacity puts them in the same world as the strokes, and it earns something
+ * mechanical as well: at this alpha the inflammation glow shows THROUGH the
+ * congestion, so a passage that is still blocked still reads as hot.
+ *
+ * ALPHA IS BAKED INTO THE TEXTURE, not applied to the Sprite. `Brick.alpha` is
+ * already spoken for twice over — an invisible brick fades in on it, and the
+ * Sneeze reflex dims whatever survives — and a third writer would mean the
+ * reveal silently cancelling the reflex. See textures.js.
+ *
+ * Metal opts out and stays opaque: it is the one thing on the board the fluid
+ * never dissolves, and that has to be legible before the player spends a rally
+ * finding out.
+ */
+export const BRICK = {
+  alpha: 0.7,
+
+  /**
+   * Shape variants, as fractions of the full cell.
+   *
+   * A grid of identical rectangles reads as a wall however it is coloured, and
+   * congestion is not a wall — it is clumps of differing size packed into a
+   * passage. Three sizes is enough to break the repeat; more would stop reading
+   * as one substance.
+   *
+   * `align` places the box inside its own cell. The cell is still the unit of
+   * the grid, so a half brick occupies a whole cell and simply does not fill
+   * it — which is what lets the ball pass through the empty side of the cell
+   * and is most of where the messy silhouette comes from.
+   */
+  shapes: {
+    full: { w: 1, h: 1, align: 0.5 },
+    halfLeft: { w: 0.5, h: 1, align: 0 },
+    halfRight: { w: 0.5, h: 1, align: 1 },
+    small: { w: 0.4, h: 0.95, align: 0.5 },
+  },
+
+  /**
+   * Visual scatter: how far a cell may be nudged from its grid position, and
+   * how far it may be tilted.
+   *
+   * COSMETIC ONLY. The AABB the ball is tested against stays exactly on the
+   * grid — see bricks.js. Moving the collision box with the sprite would make
+   * every bounce off a clump unpredictable in precisely the way this whole
+   * pivot was meant to remove, and it would cost the constant-time cell lookup
+   * `BrickField.candidates` depends on.
+   *
+   * The offset is DETERMINISTIC per cell rather than random per play. A layout
+   * is authored, and an author who nudges two clumps into a pleasing overlap
+   * should get that same overlap every time the level loads; re-rolling the
+   * mess on each run would also make a level look subtly different in a bug
+   * report than it did on the machine that filed it.
+   *
+   * Tilt is small on purpose. Past about 0.06 rad the corners of a full-width
+   * cell start reaching outside the box the ball is tested against, and the
+   * player begins to see misses on pixels that were never solid.
+   */
+  scatter: 4,
+  tilt: 0.05,
+  /** Corner radius. Just under half the cell height, so it reads as a capsule. */
+  radius: 7,
+};
+
 export const BRICK_W = GRID.cellW - GRID.gap;
 export const BRICK_H = GRID.cellH - GRID.gap;
 
@@ -319,10 +387,73 @@ export const SNEEZE = {
   threshold: 8,
   /** Hits removed from each surviving multi-hit brick. */
   loosen: 1,
-  /** Alpha applied to bricks with nothing left to give. */
-  loosenedAlpha: 0.72,
+  /**
+   * Sprite alpha applied to bricks with nothing left to give.
+   *
+   * Multiplies BRICK.alpha rather than replacing it — the cell is already
+   * translucent, so this is 0.6 OF 0.7, not 0.6 outright. It dims harder than
+   * the 0.72 it used to, because the same proportional knock-down is far less
+   * legible starting from a translucent cell than it was from an opaque one.
+   */
+  loosenedAlpha: 0.6,
   label: 'ACHOO!',
   color: 0x86e05a,
+};
+
+/**
+ * Cyclamen — the flower Nasodren is actually made from, and now the ball.
+ *
+ * `petals` and the two hues are the flower; everything else is how it moves.
+ *
+ * TIP RADIUS VERSUS COLLISION RADIUS. The drawn flower reaches `visualScale`
+ * times BALL.radius, so it is a little larger than the circle the physics
+ * tests. That overdraw is deliberate and it is bounded on purpose: a soft
+ * organic shape reading exactly at its collision radius looks undersized, but
+ * push it much past this and the player starts feeling misses on petal tips
+ * that were never part of the ball. 1.15 is about the ceiling.
+ */
+export const CYCLAMEN = {
+  petals: 5,
+  /** Petal body, and the deeper throat colour at the flower's centre. */
+  petal: 0xff66b2,
+  throat: 0xcc0099,
+  visualScale: 1.15,
+
+  /**
+   * Tumble in rad/s at BALL.baseSpeed, scaled by the ball's live speed.
+   *
+   * Tied to speed rather than constant because the flower is the clearest
+   * read the player has on how fast the rally has become — the passive ramp
+   * (BALL.rampPerSecond) is otherwise invisible until it kills them.
+   */
+  spin: 2.1,
+};
+
+/**
+ * Cyclamen petals thrown off a brick as it breaks.
+ *
+ * The counterpart to MUCUS, and deliberately its opposite in every term.
+ * Droplets are heavy, fast and short-lived — fluid draining out of the cavity.
+ * Petals are light, slow and long-lived, with `drag` low enough that they shed
+ * their launch speed almost immediately and then flutter down under a fraction
+ * of the droplets' gravity. Two different substances leaving the same break.
+ *
+ * Routed to the plain layer rather than the bloomed one, for both a look and a
+ * budget reason: petals are matter, not light, so they should not glow the way
+ * the fluid does, and MUCUS already spends 11 of the bloom layer's per-break
+ * allowance. A twelve-brick cascade would otherwise blow through VFX.bloomShare
+ * and start dropping droplets.
+ */
+export const PETAL = {
+  colors: [0xff66b2, 0xcc0099, 0xff99cc, 0xa020ff],
+  count: 7,
+  speed: 95,
+  life: 1.25,
+  /** A fraction of MUCUS.gravity: a petal falls far slower than a droplet. */
+  gravity: 150,
+  /** Lazy tumble, rad/s. Nothing like the debris shards' 9. */
+  spin: 2.4,
+  size: 1.15,
 };
 
 /**
@@ -352,12 +483,43 @@ export const SINUS = {
    * frame, which is a single write instead of a re-tessellation.
    */
   line: {
-    /** Spread beyond the stroke's own edge, per side. */
+    /**
+     * The stroke weight the two spreads below are quoted against.
+     *
+     * Both are scaled by `radius / spreadRef` at draw time, so a stroke half
+     * as wide gets half the glow. Set to the sinus walls' own radius, which
+     * makes these numbers read as literal pixels for the shapes that dominate
+     * the drawing and keeps the septum's hairline from wearing a wall's halo.
+     */
+    spreadRef: 3.5,
+
+    /** Spread beyond the stroke's own edge, per side, at spreadRef weight. */
     bloomSpread: 12,
     bloomAlpha: 0.07,
     haloSpread: 4,
     haloAlpha: 0.2,
     coreAlpha: 0.95,
+
+    /**
+     * The filament: a fourth pass, drawn INSIDE the body rather than around it.
+     *
+     * This is what separates a neon tube from a thick coloured line, and it is
+     * the tier the old three-pass stack was missing. A real lit tube is a
+     * white-hot core inside a saturated body inside a halo inside a bloom; with
+     * only the outer three the body is the brightest thing present and reads as
+     * paint. Drop a near-white filament down its middle and the same stroke
+     * reads as glass with something burning in it.
+     *
+     * `filamentInset` is a fraction of the stroke's own radius, so every stroke
+     * gets a filament proportional to its width, and there is no constant here
+     * that could drift from the geometry. It is the only tier drawn NARROWER
+     * than the collision capsule, which is safe in a way the outer tiers are not:
+     * light inside a solid claims nothing about where the solid ends.
+     */
+    filamentInset: 0.58,
+    filamentAlpha: 0.92,
+    /** Lift toward white. Must exceed `lift`, or it is just a second body. */
+    filamentLift: 0.82,
 
     /**
      * How far the core is lifted toward white, away from the ramp colour.
@@ -439,89 +601,79 @@ export const SINUS = {
   glow: {
     steps: 30,
     step: 0.034,
-    focus: { offsetX: 62, y: 252 },
+    /**
+     * How far each air space's hot spot is pulled from its own centroid toward
+     * the midline, as a fraction.
+     *
+     * Every region gets a focus INSIDE itself — see sinus.js for why that is a
+     * correctness requirement and not a preference. This only decides where in
+     * each one the light pools: medially, because that is where a sinus drains
+     * from and where mucosal thickening starts.
+     */
+    medialBias: 0.3,
     /** Floor on the innermost layer, so the hot core is a pool and not a point. */
     minScale: 0.16,
   },
 };
 
 /**
- * The nose: a nasal aperture floating in the upper-middle of the board.
+ * The sinus wireframe: line widths and tessellation. Geometry lives in
+ * game/cavity.js, next to the queries that consume it.
  *
- * Geometry lives in game/cavity.js, next to the collision code that consumes
- * it. What is here is the switch and the tolerances.
+ * IT IS SCENERY. Nothing in the drawing touches the ball — FIELD.left,
+ * FIELD.right and FIELD.top are the only surfaces in the game that turn one
+ * around, exactly as before any of this existed. An earlier pass made every
+ * stroke a solid capsule the ball rebounded off; it was reverted because
+ * curved bumpers scatter a shot unpredictably, and a breakout board the player
+ * cannot aim in is not a breakout board. The radii below are therefore line
+ * widths and nothing else.
  *
- * IT IS NOT THE PLAYFIELD. It used to be — walls running edge to edge with the
- * ball sealed inside them — and that drew a box rather than a nose. Pulling the
- * shape in so it floats with clear board around it fixes the look and inverts
- * the physics: FIELD is the boundary again, and the nose is a cluster of
- * two-sided solid strokes standing in the middle of it. `GameScene` bounces the
- * ball off the rectangle first and the nose second, every substep.
+ * WHICH LEVELS GET IT. Per level, via `cavity: true` in a LEVELS entry, and it
+ * stays opt-in for a reason that survived the reversal: the aperture occupies
+ * the middle of the board, and congestion drawn over the open flanks says the
+ * blockage is everywhere. A cavity level's layout must sit wholly inside the
+ * two tracts, which `validateLevels` enforces through `rectInsideTract`.
  *
- * WHICH LEVELS GET IT. The switch is per level: `cavity: true` in a LEVELS
- * entry. It stays opt-in even though the nose no longer bounds anything,
- * because the nose occupies x 143..497 and y 92..342 — straight through where
- * levels 2 to 12 put their walls. A brick fused into a solid stroke is not
- * always a soft-lock now that the ball can travel around the outside, but the
- * bounce off that face is unreadable and the brick's own collision fights the
- * stroke's.
- *
- * To bring another level in: re-cut its layout so no brick overlaps the nose,
- * then add the flag and let `validateLevels` confirm it with
- * `NoseObstacles.hitsRect()`. The boss level is refused the flag
- * unconditionally in GameScene; the Construct patrols a band straight through
- * the aperture.
+ * To bring another level in: re-cut its layout against the usable-cell map that
+ * `npm run check:nose` prints, then add the flag and let the checker confirm
+ * it. The boss level is refused the flag unconditionally in GameScene; the
+ * Construct patrols a band straight through the aperture.
  */
 export const CAVITY = {
   /**
    * Curve flattening, in design pixels of segment length.
    *
-   * This is now the *only* difference between what is drawn and what the ball
-   * hits: the renderer strokes the true quadratics, collision runs on these
-   * chords. 4 holds the gap under a fiftieth of a pixel on the tightest bend
-   * here — the turn of the ala — which is two orders of magnitude inside the
-   * ball's 5px radius, so the ball bounces where the light is.
+   * The renderer strokes the true curves; the flattened chords are what the
+   * containment test measures a brick against. 4 holds the gap under a
+   * fiftieth of a pixel on the tightest bend here — the alveolar recess — so
+   * "inside the tract" means inside the shape the player can actually see.
    *
-   * Collision cost is unaffected by this number: the broadphase keeps a lookup
-   * at a handful of segments however finely the curve is cut (see cavity.js).
-   * The only thing lowering it spends is the one-time tessellation at level
-   * load, which is why it can afford to be this tight.
+   * It costs nothing at runtime. Flattening happens once at module load, and
+   * the only consumer after that is level validation.
    */
   flatten: 4,
 
   /**
-   * Stroke radii, in design pixels. These are the collision radii *and* half
-   * the drawn line width — see cavity.js for why those cannot be two numbers.
+   * Stroke radii, in design pixels: half the drawn line width, and the reach
+   * the brick-containment margin is measured from.
    *
-   * The septum is the fatter of the two because it is the bumper: it has to
-   * read as a solid object from across the board, and a wider body makes the
-   * deflection off its rounded tip land further from centre.
+   * These used to be collision radii as well, which is why they are radii
+   * rather than widths. Nothing bounces off them now — the septum is fatter
+   * than the walls because it is the divider the two passages are read
+   * against, not because it was ever a better bumper.
+   */
+  /**
+   * Line width per structure, as a radius: the stroke is drawn at twice this.
+   *
+   * They differ on purpose, and the hierarchy is the drawing's depth cue. A
+   * section rendered at one uniform weight reads as a diagram; varying it reads
+   * as a scan, where dense cortical bone returns a thicker brighter line than a
+   * thin bony septum does. Heaviest for the structures that carry the section —
+   * the sinus walls carry the section; the septum is a hairline between them.
+   * Nothing here is a collision reach any more.
    */
   wallRadius: 3.5,
-  septumRadius: 6,
-
-  /**
-   * Broadphase grid cell, and the margin a segment's box is inflated by beyond
-   * its own stroke radius when it is filed.
-   *
-   * The pad has to cover the ball's radius plus one substep of travel (5 + 4),
-   * because a lookup reads exactly one cell — the one the ball's centre is in.
-   * 12 leaves headroom for a larger ball if one is ever added.
-   */
-  cellW: 40,
-  cellH: 20,
-  cellPad: 12,
-
-  /**
-   * Extra push-out applied on top of the measured penetration.
-   *
-   * Without it a ball resolved to exactly touching re-triggers the same contact
-   * on the next substep, and since the reflection is gated on the ball actually
-   * moving inward it does not flip twice — but it does fire the bounce sound
-   * and the sparks twice. Half a pixel of clearance is cheaper than tracking
-   * contact state.
-   */
-  skin: 0.5,
+  septumRadius: 1.5,
 };
 
 /**

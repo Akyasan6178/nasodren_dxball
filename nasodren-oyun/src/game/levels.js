@@ -10,77 +10,70 @@
  *   M      metal   - indestructible, does not count toward clearing
  *   I      invisible - materialises on first contact, then behaves as standard
  *
+ *   <      half-width cell, hugging the LEFT edge of its column
+ *   >      half-width cell, hugging the RIGHT edge of its column
+ *   o      small square, centred in its column
+ *
+ * The three shape characters are standard one-hit cells in a smaller box. They
+ * exist so a layout can be packed into a curved space, and so the result does
+ * not read as a wall; every cell is additionally drawn nudged and tilted, see
+ * BRICK.scatter. The special kinds — S, G, X, M, I — are full-cell only.
+ *
  * `music` selects one of the synthesised tracks in core/audio.js, mirroring the
  * way the original swapped tracks every few levels.
  *
- * `cavity: true` stands the nose from game/cavity.js in the middle of the
- * board: three solid neon strokes the ball bounces off, on top of the ordinary
- * FIELD walls. It is opt-in per level because the nose occupies x 143..497 and
- * y 92..342, straight through where most layouts put their bricks, and a brick
- * overlapping a stroke is fused into a solid wall. See CAVITY in config.js.
+ * `cavity: true` stages the level inside the sinus wireframe from
+ * game/cavity.js. NOTHING THERE IS SOLID — the
+ * ball bounces off the plain FIELD rectangle on every level, exactly as it
+ * always did. What the flag costs a layout is containment: every cell must sit
+ * wholly inside one of the two cavity tracts, which `validateLevels` checks.
+ * Run `npm run check:nose` for a map of which cells each shape may occupy.
  */
 
-import { BRICK_W, BRICK_H, GRID } from './config.js';
-import { NoseObstacles } from './cavity.js';
+import { BRICK, BRICK_W, BRICK_H, GRID } from './config.js';
+import { rectInsideTract } from './cavity.js';
 
 export const LEVELS = [
   {
     /**
      * Level 1 — Viral ARS (a common cold).
      *
-     * The mildest presentation in the report, and the layout says so: no
-     * multi-hit bricks, no metal, no explosives — sixteen single-hit bricks,
-     * eight per cavity, every one of them inside the nose.
+     * EIGHT CLUMPS, AND THE BOARD IS 96% EMPTY. That is the level's whole
+     * argument. This is the mildest presentation in the report — a head cold,
+     * not a sinusitis — and a screen packed wall to wall says the opposite
+     * before the player has touched anything. An earlier cut filled every legal
+     * cell in both sinuses; it validated, it looked congested, and it was
+     * telling the wrong story about the condition the product treats.
      *
-     * EIGHT AND EIGHT IS LOAD-BEARING NOW THAT CLEARANCE IS ASYMMETRIC. Each
-     * cavity is coloured by its own ratio, so the two halves have to start
-     * equal or the nose is lopsided from the first frame through no fault of
-     * the player. Any layout added here must stay mirror-symmetric for the same
-     * reason.
+     * LOW IN THE SINUS, BECAUSE THAT IS WHERE FLUID SITS. Every clump is in the
+     * bottom four rows, around the alveolar recess — the dependent part of a
+     * maxillary sinus, and the last place anything drains from. Nothing sits up
+     * near the cheekbone, where a real early effusion never would.
      *
-     * THE CONGESTION IS IN THE NASAL CAVITIES AND NOWHERE ELSE. That is the
-     * whole argument the level makes, so the open board around the aperture is
-     * left open: bricks out there would say the congestion is everywhere, which
-     * is not what the product is about. It also gives the ball somewhere to
-     * travel — the flanks and the space over the bridge are where a shot goes
-     * when an ala throws it back out.
+     * The four on a side are staggered rather than stacked: a half hugging the
+     * inner wall, a half out at the lateral angle, then two in the floor. Four
+     * cells in one column would read as a bar, which is the exact thing the
+     * scatter and the shape variants exist to prevent.
      *
-     * SIXTEEN IS THE HONEST NUMBER, and it is set by geometry, not by taste.
-     * The grid is 48px to a column and the nose has a narrow bridge, so the
-     * upper cavities simply cannot hold a brick. Measured against the strokes,
-     * each cavity clears one column (5 on the left, 7 on the right) at y 220
-     * and 240, and two (4 and 5, 7 and 8) from y 260 to 318 as the alae flare.
-     * Above y 220 the passage is under 46px wide and nothing fits. Widening the
-     * nose to fit more would eat either the padding or the inward sweep at the
-     * bridge, which are the two things that make it read as a nose.
+     * FOUR AND FOUR IS LOAD-BEARING. Each sinus is coloured by its own
+     * clearance ratio, so the two sides must START equal or one reads angrier
+     * than the other from the first frame through no fault of the player. The
+     * checker fails the build if they drift apart. Positions are mirrored; the
+     * *shapes* deliberately are not — the left has a small clump high and a
+     * full one low, the right the reverse — and with only eight cells on screen
+     * that difference is most of what stops the pair looking stamped.
      *
-     * WATCH THE MARGINS IF THE ANCHORS MOVE. The brick grid's middle column
-     * spans x 296..342, so its centre is 319 while the nose is mirrored about
-     * 320, and that one-pixel offset is enough to clear a column on one side
-     * and not the other. Only ever take the symmetric subset: two passages that
-     * do not play identically are a bug the player will feel and never be able
-     * to name — and now that each cavity is coloured independently, an uneven
-     * split would also make one side look permanently worse than the other.
+     * THE MIDDLE COLUMN IS THE NASAL CAVITY. Column 6 spans x 296..344 and the
+     * two sinuses stop at x 304 and 336, so nothing can be placed there: the
+     * containment check rejects it, because the gap between the medial walls is
+     * not a tract. It is also the lane the ball travels up.
      *
-     * COLUMN 6 IS EMPTY ON EVERY ROW. It spans x 296..342 and the septum sits
-     * at 314..326 inside it. Below the septum's tip at y 290 it is still left
-     * clear, because that column is the approach: the ball comes off the paddle
-     * up the midline, catches the rounded tip, and is thrown into one cavity or
-     * the other. Fill it and the level loses its central mechanic.
-     *
-     * The clusters swell from one brick to two and back to one as they descend,
-     * which is the shape of the cavity holding them — fluid pools to the shape
-     * of what holds it. The pair at row 12 sits on the nostril sills, the last
-     * place anything drains from.
-     *
-     * A brick overlapping a stroke is fused into a solid wall: the bounce off
-     * that face is unreadable and the two collisions fight each other.
-     * `validateLevels` checks every brick with `NoseObstacles.hitsRect()`, and
-     * it is the check to re-run after touching any coordinate in cavity.js.
-     *
-     * Warm palette indices throughout (2 = orange, 3 = yellow) so the
-     * congestion reads hot against the cyan strokes, and the inflammation glow
-     * behind it has something to be the colour of.
+     * READING THE MAP. `<` and `>` are half-width cells hugging the left and
+     * right of their column, `o` is a small square in the middle of one, and a
+     * digit is a full cell in that palette colour. Every cell is also drawn
+     * nudged and tilted by BRICK.scatter — deterministically, so this layout
+     * looks the same on every load. Run `npm run check:nose` for a map of which
+     * cells each shape may legally occupy.
      */
     name: 'Viral ARS',
     music: 0,
@@ -94,13 +87,15 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.....2.2.....',
-      '.....3.3.....',
-      '....22.22....',
-      '....33.33....',
-      '....22.22....',
+      '.............',
+      '.............',
+      '.....<.>.....',
+      '...>.....<...',
+      '....3...o....',
+      '....o...o....',
     ],
-  },  {
+  },
+  {
     name: 'Pillars',
     music: 0,
     rows: [
@@ -242,18 +237,30 @@ export const LEVEL_COUNT = LEVELS.length;
 /**
  * Dev guard: catches a mistyped row before it becomes a confusing layout bug.
  *
- * The second half is the one that matters. On a `cavity` level a brick that
- * overlaps the nose is a brick fused into a solid stroke: the bounce off that
- * face is unreadable, and the brick's own collision fights the stroke's. It is
- * cheap to check and impossible to see coming from a string of dots.
+ * The second half is the one that matters, and it INVERTED with the pivot. The
+ * old question was whether a brick overlapped a nose stroke, because a brick
+ * fused into a solid wall fought its own collision. Nothing here is solid any
+ * more, so overlapping a stroke is merely untidy — what matters now is that
+ * congestion sits INSIDE the passages it claims to be blocking. A clump adrift
+ * in the open board is the thing that would look broken, and neither failure is
+ * visible in a string of dots.
  *
- * NOTE: nothing calls this yet. Wiring it into BootScene and logging the result
- * is a two-line change and worth doing before any more layouts are cut around
- * the nose by hand.
+ * Run from `scripts/check-nose.mjs`, which is where a layout should be taken
+ * after touching any coordinate in cavity.js.
  */
+/**
+ * Which shape each layout character asks for. Mirrors CHAR_MAP in bricks.js.
+ *
+ * Duplicated deliberately, and it is a small duplication with a real payoff:
+ * importing bricks.js here would pull the whole display layer — Pixi, the
+ * texture atlas, every Sprite — into a module that level tooling and the
+ * geometry checker want to load on their own. Anything not listed is a full
+ * cell, which is also what bricks.js falls back to.
+ */
+const SHAPE_FOR = { '<': 'halfLeft', '>': 'halfRight', o: 'small' };
+
 export function validateLevels(cols) {
   const problems = [];
-  let bounds = null;
 
   LEVELS.forEach((level, i) => {
     const label = `Level ${i + 1} "${level.name}"`;
@@ -265,20 +272,29 @@ export function validateLevels(cols) {
     });
 
     if (!level.cavity || level.boss) return;
-    bounds ??= new NoseObstacles();
 
     level.rows.forEach((row, r) => {
-      const y0 = GRID.y + r * GRID.cellH;
+      const y0 = GRID.y + r * GRID.cellH + GRID.gap / 2;
 
       [...row].forEach((ch, c) => {
         if (ch === '.') return;
 
-        const x0 = GRID.x + c * GRID.cellW;
-        const struck = bounds.hitsRect(x0, y0, x0 + BRICK_W, y0 + BRICK_H);
+        // The variant's own box, not the full cell: a half-width clump is
+        // allowed in a column where a full one would not fit, and that is most
+        // of what the shape characters are for.
+        const box = BRICK.shapes[SHAPE_FOR[ch] ?? 'full'];
+        const w = BRICK_W * box.w;
+        const h = BRICK_H * box.h;
+        const x0 = GRID.x + c * GRID.cellW + GRID.gap / 2 + (BRICK_W - w) * box.align;
+        const yy = y0 + (BRICK_H - h) * 0.5;
 
-        if (struck) {
+        // The scatter margin: a cell is drawn up to BRICK.scatter off its grid
+        // position, so a layout that only just fits would spill onto the
+        // wireframe the moment the mess is applied.
+        if (!rectInsideTract(x0, yy, x0 + w, yy + h, BRICK.scatter)) {
           problems.push(
-            `${label} brick at row ${r} col ${c} overlaps the "${struck}" stroke — it would be fused into a solid wall`,
+            `${label} brick at row ${r} col ${c} ('${ch}') is not inside a sinus tract — ` +
+              'congestion has to sit in the passages it is blocking',
           );
         }
       });

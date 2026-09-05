@@ -13,6 +13,7 @@ import {
   LASER,
   MAX_DT,
   PADDLE,
+  PETAL,
   PLASMA,
   PURGE,
   REBOUND,
@@ -29,7 +30,7 @@ import { LEVELS } from '../game/levels.js';
 import { TEX } from '../game/textures.js';
 import { BrickField } from '../game/bricks.js';
 import { SinusBackdrop, buildSinusGround } from '../game/sinus.js';
-import { NoseObstacles, SEPTUM_X } from '../game/cavity.js';
+import { SEPTUM_X } from '../game/cavity.js';
 import { Paddle } from '../game/paddle.js';
 import { Ball } from '../game/ball.js';
 import { Particles } from '../game/particles.js';
@@ -92,22 +93,24 @@ export class GameScene extends Scene {
       : [];
 
     /**
-     * The nose obstacles, or null on a level that does not carry them.
+     * Does this level stage its congestion inside the sinus?
      *
-     * The nose is no longer the playfield — FIELD is, on every level, the way
-     * it always was. This is a cluster of solid strokes standing in the middle
-     * of the board, tested after the walls and before the bricks.
+     * A pure presentation flag, and it is worth being explicit that it is no
+     * longer anything else. It used to build a cluster of solid strokes the
+     * ball bounced off; that idea is gone, because curved bumpers make a
+     * breakout board impossible to aim in — see the note at the top of
+     * cavity.js. What the flag decides now is entirely visual: whether the
+     * wireframe is staged behind the play, and whether this level's
+     * layout is validated for containment inside the tracts.
      *
-     * Resolved once, like `trialMechanics`, because a scene plays exactly one
-     * level. The hot path pays one null check per substep; the alternative, a
-     * config lookup per substep per ball, is on the busiest line in the game.
+     * FIELD is the boundary, on this level and every other, exactly as it was
+     * before any of this. `_collideWalls` is the only thing that turns a ball
+     * around, and nothing in the substep loop consults the anatomy.
      *
-     * A level opts in with `cavity: true`. The boss is refused it regardless:
-     * the Construct patrols a band straight through the aperture, so a flag
-     * added to that entry by mistake must not impale it. See CAVITY in
-     * config.js for why this is opt-in rather than global.
+     * The boss is refused the flag regardless: the Construct patrols a band
+     * straight through the aperture and would sit on top of the drawing.
      */
-    this.nose = this.level.cavity && !this.level.boss ? new NoseObstacles() : null;
+    this.cavityLevel = !!this.level.cavity && !this.level.boss;
 
     this.state = 'serve';
     this.paused = false;
@@ -246,7 +249,7 @@ export class GameScene extends Scene {
     // The wall chrome is drawn *after* it, so the additive glow is painted over
     // at the playfield edge rather than needing a mask — a mask here would cost
     // a stencil push and pop on every single frame.
-    this.backdrop = new SinusBackdrop(this.reduceMotion, !!this.nose);
+    this.backdrop = new SinusBackdrop(this.reduceMotion, this.cavityLevel);
     this.gameContainer.addChild(this.backdrop);
 
     const g = new Graphics();
@@ -494,12 +497,13 @@ export class GameScene extends Scene {
     return entry ? Math.max(0, entry.t) * 1000 : PLASMA.durationMs;
   }
 
-  _updatePlasmaTrails(dt) {
+  _updatePlasmaTrails() {
     if (!this.plasmaActive) return;
 
-    for (const ball of this.balls) ball.update(dt);
-
-    // The balls own the countdown; when none is left in plasma, stand down.
+    // The per-ball tick — countdown and ribbon both — now runs in
+    // `_updateBalls`, unconditionally, because the cyclamen has to spin outside
+    // plasma too. Ticking here as well would decrement the countdown twice a
+    // frame. All this method still owns is the stand-down.
     if (!this.balls.some((b) => b.isPlasmaMode)) this._setPlasma(false);
   }
 
@@ -800,7 +804,7 @@ export class GameScene extends Scene {
     this._updateBoss(dt);
     this._updateBalls(dt);
     this._updateCapsules(dt);
-    this._updatePlasmaTrails(dt);
+    this._updatePlasmaTrails();
     this.particles.update(dt);
     this._updateFloaters(dt);
     this._updateBackdrop(dt);
@@ -847,8 +851,8 @@ export class GameScene extends Scene {
    * Drive each cavity's colour from its own fullness ratio.
    *
    * ASYMMETRIC CLEARANCE. The two passages are tracked separately, so a player
-   * who chews through the right cluster watches the right nostril cool to cyan
-   * while the left is still inflamed. That is the whole point of the split:
+   * who chews through the right cluster watches the right maxillary sinus cool
+   * to cyan while the left is still inflamed. That is the whole point of the split:
    * `ratio` is per side, `1` while that side is fully blocked and `0` once it
    * is empty, and each side reaches the healthy end the moment its own last
    * brick goes — not when the level does.
@@ -916,11 +920,29 @@ export class GameScene extends Scene {
           FIELD.right - ball.radius,
         );
         ball.y = this.paddle.top - ball.radius - 1;
+        // A held flower still turns. It is the only thing moving on the board
+        // during a serve, and a frozen one reads as the game having hung.
+        ball.update(dt);
         continue;
       }
 
       ball.speed = speed;
       this._moveBall(ball, dt);
+
+      /**
+       * Per-frame visual tick, once per ball, and ONLY from here.
+       *
+       * This used to live in `_updatePlasmaTrails`, which is gated on
+       * `plasmaActive` — that was fine while the method held nothing but the
+       * Purge countdown, and wrong the moment the cyclamen needed to spin
+       * during ordinary play. Calling it from both places would run the plasma
+       * countdown twice per frame and halve the power-up's duration, so
+       * `_updatePlasmaTrails` no longer calls it at all.
+       *
+       * After the move rather than before, so the plasma ribbon samples the
+       * position the ball actually ended the frame at.
+       */
+      ball.update(dt);
 
       if (ball.dead) {
         this.particles.burst(ball.x, Math.min(ball.y, DESIGN.height - 4), {
@@ -954,10 +976,6 @@ export class GameScene extends Scene {
       ball.step(sdt);
 
       this._collideWalls(ball);
-      // After the walls, before the bricks. A ball squeezed between a nose
-      // stroke and the field edge has to end the substep clear of the wall, and
-      // the wall is the surface that cannot be pushed back.
-      if (this.nose) this._collideNose(ball);
       this._collideBricks(ball);
       // Runs inside the same substep as the brick test, so a ball threading a
       // shield gap at full speed can't tunnel through a segment either.
@@ -969,58 +987,6 @@ export class GameScene extends Scene {
         return;
       }
     }
-  }
-
-  /**
-   * Bounce off the nose.
-   *
-   * The reflection is a plain mirror about the surface normal — `d - 2(d.n)n` —
-   * which is the right physics here precisely because the paddle is the only
-   * surface in this game that steers the ball. A bumper that added its own
-   * english would make the shape unreadable, and the shape is the point: the
-   * flare of each ala throws a shot back out toward the flanks, and the
-   * septum's rounded tip turns a shot up the midline into a run up one nostril
-   * or the other depending on which side of centre it caught.
-   *
-   * Reflecting is gated on the ball actually travelling into the surface.
-   * Without that test a ball resting against a curve flips its direction on
-   * every substep and buzzes along it, because the push-out and the mirror
-   * fight each other.
-   *
-   * The septum is louder than the lateral walls on purpose. It is the surface
-   * furthest from anything the player has an instinct for, and a bounce off the
-   * tip can send the ball somewhere genuinely surprising — so the hit needs to
-   * be unmistakably a hit and not a glitch. Same normal, same maths; more
-   * sparks, brighter flash, and the cartilage ping rather than the wall thud.
-   */
-  _collideNose(ball) {
-    const hit = this.nose.collide(ball.x, ball.y, ball.radius);
-    if (!hit) return;
-
-    ball.x += hit.nx * (hit.depth + CAVITY.skin);
-    ball.y += hit.ny * (hit.depth + CAVITY.skin);
-
-    const into = ball.dx * hit.nx + ball.dy * hit.ny;
-    if (into >= 0) return;
-
-    ball.setDirection(ball.dx - 2 * into * hit.nx, ball.dy - 2 * into * hit.ny);
-
-    const septum = hit.id === 'septum';
-    const impact = septum ? VFX.metalImpact : VFX.wallImpact;
-    const color = septum ? 0xd7f6ff : 0x9fe9ed;
-
-    if (septum) this.ctx.audio.metalPing();
-    else this.ctx.audio.wallBounce();
-
-    // Sparks spray back along the real surface normal, so a hit on the curve of
-    // an ala throws them along that curve rather than straight off a phantom
-    // vertical wall.
-    this.particles.sparks(ball.x, ball.y, hit.nx, hit.ny, {
-      count: impact.sparks,
-      color,
-      speed: impact.speed,
-    });
-    this.particles.flash(ball.x, ball.y, { color, size: impact.flash });
   }
 
   /**
@@ -1309,9 +1275,17 @@ export class GameScene extends Scene {
           size: 1.3,
         });
         this.particles.droplets(info.x, info.y, { count: MUCUS.count + 5, speed: MUCUS.speed * 1.5, size: 1.2 });
+        // A rupture throws the cyclamen wider and harder than a clean break.
+        this.particles.petals(info.x, info.y, { count: PETAL.count + 5, speed: PETAL.speed * 1.7 });
         this.particles.flash(info.x, info.y, { color: 0xfff0c2, size: 1.4, life: 0.24 });
       } else {
+        // Two substances leaving one break: the fluid the cavity is losing, and
+        // the cyclamen that shifted it. They are emitted together and then
+        // separate on their own, because PETAL and MUCUS disagree about gravity,
+        // drag and life by roughly an order of magnitude each — the droplets are
+        // gone before the petals have finished falling.
         this.particles.droplets(info.x, info.y);
+        this.particles.petals(info.x, info.y);
         // The flash stays on the brick's own colour: it is the moment of the
         // break, before the fluid it was holding has gone anywhere.
         this.particles.flash(info.x, info.y, { color: info.color, size: 0.5 });

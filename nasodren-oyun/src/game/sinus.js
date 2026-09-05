@@ -1,39 +1,38 @@
 import { Container, Graphics } from 'pixi.js';
 import { DESIGN, FIELD, SINUS } from './config.js';
-import { CAVITIES, NOSE_STROKES } from './cavity.js';
+import { GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
 
 /**
- * The nose: a glowing neon nasal aperture in the upper-middle of the board.
+ * The paranasal sinuses, drawn as a glowing neon coronal section.
  *
  * THE ONE RULE THIS FILE FOLLOWS. It does not own a single coordinate, and it
  * does not choose a single line width. `cavity.js` exports `NOSE_STROKES` —
  * points plus a radius per stroke — and this draws each one at exactly
- * `radius * 2`. A polyline stroked at width 2r with round caps and joins is
- * precisely the set of points within r of that polyline, which is precisely
- * what the collision test measures. The lit line and the surface the ball
- * bounces off are therefore the same object, not two descriptions of one that
- * have to be kept in step. Change a coordinate or a radius and both move
- * together, because there is only one of each.
+ * `radius * 2`. Change a coordinate or a radius and the drawing moves together
+ * with the region a layout is allowed to occupy, because there is only one of
+ * each.
  *
- * The halo is the one thing drawn wider than the surface, and it is drawn
- * *under* the body at low alpha so it reads unambiguously as glow spilling off
- * a solid line rather than as more line. That distinction matters here in a way
- * it did not when these strokes were the playfield edge: the ball now passes
- * within a few pixels of the outside of every wall, so a halo the player might
- * mistake for substance is a halo they will blame for a bounce.
+ * NONE OF IT IS SOLID. The ball bounces off the FIELD rectangle and nothing
+ * else — these strokes are scenery, and the radii they are drawn at are line
+ * widths rather than collision reaches. That is why the halo can be drawn wider
+ * than the body without any care about what it implies: there is no bounce here
+ * for a player to mistake it for.
  *
- * ASYMMETRIC CLEARANCE. The two cavities are separate Graphics carrying
- * separate colours, because a Graphics has one tint and the two passages drain
- * independently: clear the right and it runs cool while the left is still
- * burning. Each side owns its glow, its strokes and its own eased clearance.
- * The septum, belonging to both, takes the mean.
+ * ASYMMETRIC CLEARANCE. The two halves of the section are separate Graphics
+ * carrying separate colours, because a Graphics has one tint and the two sinuses
+ * drain independently: clear the right and it runs cool while the left is still
+ * burning. Each side owns its glow, its strokes and its own eased clearance. The
+ * midline structures, belonging to both, take the mean.
  *
  * Everything is static after construction:
  *
  *   The **strokes** are stroked once in the constructor and never touched
- *   again. Three tiers — a wide faint bloom, a tight halo, the solid body —
- *   which is far cheaper than a blur filter and does not scale with the size of
- *   the drawing.
+ *   again. Four tiers — a wide faint bloom, a tight halo, the solid body, and a
+ *   near-white filament threaded down the middle of it — which is far cheaper
+ *   than a blur filter and does not scale with the size of the drawing. The
+ *   filament is the tier that makes these read as lit glass rather than as
+ *   thick coloured lines; see SINUS.line.filamentInset for why it is inset by a
+ *   fraction of each stroke's own radius rather than by a constant.
  *
  *   The **inflammation** is one stack of scaled copies of each cavity polygon,
  *   filled additively and tessellated once. Per frame the only writes are
@@ -86,8 +85,15 @@ function gradientStack(g, points, focus, { steps, step, minScale }) {
   }
 }
 
-/** Linear blend between two packed RGB colours. */
-function lerpColor(a, b, k) {
+/**
+ * Linear blend between two packed RGB colours.
+ *
+ * Exported for the septum face, which lifts the shared hue toward white by its
+ * own factor exactly as the stroke cores do. Re-implementing this next to the
+ * face would be four lines of trivial arithmetic and one more place for the two
+ * halves of the same drawing to drift apart.
+ */
+export function lerpColor(a, b, k) {
   const ar = (a >> 16) & 0xff;
   const ag = (a >> 8) & 0xff;
   const ab = a & 0xff;
@@ -129,12 +135,11 @@ export class SinusBackdrop extends Container {
    * @param {boolean} reduceMotion Suppress the throb for motion-sensitive players.
    * @param {boolean} outline Stroke the nose.
    *
-   * `outline` follows whether the nose is actually collidable on this level.
-   * The glow is drawn either way — it is the inflammation readout, and every
-   * level has one — but the solid neon strokes are only drawn where the ball
-   * really bounces off them. Drawn on a level that does not carry the
-   * obstacles, they would be a lie about the physics, and a bad one: a bumper
-   * in the middle of the board that the ball flies straight through.
+   * `outline` follows the level's `cavity` flag. The glow is drawn either way
+   * — it is the inflammation readout, and every level has one — but the neon
+   * strokes are only drawn where the layout was authored to sit inside them.
+   * On a level whose bricks run the full width of the board, the wireframe
+   * would be congestion-shaped scenery with congestion all over the top of it.
    */
   constructor(reduceMotion = false, outline = true) {
     super();
@@ -151,54 +156,83 @@ export class SinusBackdrop extends Container {
      *
      * They are separate Graphics because they carry separate colours, and a
      * Graphics has one tint. That is the whole reason for the split: a player
-     * who has cleared the right passage and not the left should see one nostril
-     * running cool while the other still burns, and no amount of shared state
+     * who has cleared the right maxillary sinus and not the left should see that
+     * side run cool while the other still burns, and no amount of shared state
      * can express that.
      *
      * `progress` is per side and eased per side, so a cluster falling on the
      * left cools the left alone at its own pace. `target` is what the scene
      * hands in each frame.
      */
-    const f = SINUS.glow.focus;
-
-    this.sides = CAVITIES.map((points, i) => {
-      const focus = { x: CX + (i === 0 ? -f.offsetX : f.offsetX), y: f.y };
-
+    this.sides = GLOW_REGIONS.map((polys) => {
+      /**
+       * EACH POLYGON GETS ITS OWN FOCUS, and that is a correctness rule rather
+       * than a refinement. `gradientStack` builds its falloff by scaling the
+       * polygon about the focus, so a focus outside the polygon does not dim
+       * that region — it marches every layer out of it. A side holds one air
+       * space today and held two before the drawing was simplified; with one
+       * shared focus the second one emptied itself across the board instead of
+       * lighting. A focus has to be inside the shape it lights.
+       */
       const glow = new Graphics();
       glow.blendMode = 'add';
-      gradientStack(glow, points, focus, SINUS.glow);
+
+      const foci = polys.map((points) => {
+        let cx = 0;
+        let cy = 0;
+        for (const [px, py] of points) {
+          cx += px / points.length;
+          cy += py / points.length;
+        }
+
+        // Pulled toward the midline, because that is where each sinus drains
+        // from and where inflammation concentrates. Purely a look — but it is
+        // the look of a scan rather than of a lamp in a box.
+        return { x: cx + (CX - cx) * SINUS.glow.medialBias, y: cy };
+      });
+
+      polys.forEach((points, j) => gradientStack(glow, points, foci[j], SINUS.glow));
 
       return {
-        focus,
+        // The throb scales the whole side about one point, so it takes the
+        // first region's focus — the maxillary sinus, which is by far the
+        // larger volume and the one the pulse should look centred on.
+        focus: foci[0],
         glow,
         halo: new Graphics(),
         core: new Graphics(),
+        filament: new Graphics(),
         progress: 0,
         target: 0,
       };
     });
 
     /**
-     * The septum belongs to both cavities, so it takes the mean of the two.
+     * The midline structures take the mean of the two sides.
      *
-     * Splitting it down the midline into a left face and a right face was the
-     * alternative, and it is worse in every way that matters: the stroke has
-     * round caps, so halving it leaves two half-capsules that do not tile back
-     * into the shape the ball actually collides with, and the seam falls
-     * exactly on the axis of symmetry where any mismatch is most visible. The
-     * mean is honest — it is one object dividing two passages — and when both
-     * sides agree it looks precisely as it did before the split.
+     * The septum belongs to both halves of the section, so it cannot carry
+     * one side's colour. Splitting them
+     * down the middle into a left face and a right face was the alternative,
+     * and it is worse in every way that matters: the strokes have round caps,
+     * so halving one leaves two half-capsules that do not tile back into the
+     * shape, and the seam falls exactly on the axis of symmetry where any
+     * mismatch is most visible. The mean is honest, and when both sides agree
+     * it looks precisely as it would have anyway.
      */
-    this.septum = { halo: new Graphics(), core: new Graphics() };
+    this.septum = { halo: new Graphics(), core: new Graphics(), filament: new Graphics() };
 
     // Layered by tier rather than by side: every glow, then every halo, then
-    // every core. Drawing side-by-side would let the left cavity's bloom sit on
-    // top of the right cavity's bright line where they meet at the septum.
+    // every core, then every filament. Drawing side-by-side would let the left
+    // cavity's bloom sit on top of the right cavity's bright line where they
+    // meet at the septum — and would bury the filaments, which have to be the
+    // last thing painted or they are not the brightest thing in the stroke.
     for (const s of this.sides) this.addChild(s.glow);
     for (const s of this.sides) this.addChild(s.halo);
     this.addChild(this.septum.halo);
     for (const s of this.sides) this.addChild(s.core);
     this.addChild(this.septum.core);
+    for (const s of this.sides) this.addChild(s.filament);
+    this.addChild(this.septum.filament);
 
     if (outline) this._strokeNose();
 
@@ -227,29 +261,50 @@ export class SinusBackdrop extends Container {
     // Which Graphics pair each stroke belongs to. The wall ids come from
     // cavity.js; anything unrecognised would silently vanish, so this is a
     // lookup rather than a positional assumption about NOSE_STROKES.
-    const owner = {
-      'wall-left': this.sides[0],
-      'wall-right': this.sides[1],
-      septum: this.septum,
-    };
+    // Which Graphics set each stroke draws into, read straight off the stroke's
+    // own `side` field. This used to be a lookup table keyed by id; at nineteen
+    // strokes that became untenable — every structure added to anatomy.js would
+    // have needed a matching entry here, and the failure mode for forgetting is
+    // a structure that is silently never drawn.
+    const ownerFor = (side) => (side === null ? this.septum : this.sides[side]);
 
     const tiers = [
       { layer: 'halo', spread: L.bloomSpread, alpha: L.bloomAlpha },
       { layer: 'halo', spread: L.haloSpread, alpha: L.haloAlpha },
       { layer: 'core', spread: 0, alpha: L.coreAlpha },
+      { layer: 'filament', inset: L.filamentInset, alpha: L.filamentAlpha },
     ];
 
     for (const tier of tiers) {
-      for (const { id, path, radius } of NOSE_STROKES) {
-        const g = owner[id]?.[tier.layer];
-        if (!g) continue;
+      for (const { path, radius, side } of NOSE_STROKES) {
+        const g = ownerFor(side)[tier.layer];
+
+        /**
+         * The outer tiers spill past the body; the filament is inset into it.
+         *
+         * BOTH SCALE WITH THE STROKE'S OWN WIDTH. The spreads used to be
+         * absolute, which was fine while every stroke was about the same
+         * weight, and stopped being fine the moment the septum dropped to a
+         * 3px hairline: a fixed 12px bloom and 4px halo around a 3px line is a
+         * 27px glow with a thread in the middle of it, which is exactly the
+         * sausage the thin septum exists to avoid. Scaling against
+         * `spreadRef` — the sinus walls' own radius — leaves the wings looking
+         * precisely as they did and gives the hairline a hairline's glow.
+         */
+        const width =
+          tier.inset === undefined
+            ? radius * 2 + tier.spread * 2 * (radius / L.spreadRef)
+            : radius * 2 * (1 - tier.inset);
+
+        if (width < 0.5) continue;
 
         tracePath(g, path);
 
         g.stroke({
           // The body tier is exactly the capsule the collision test measures;
-          // the two above it are that plus a fixed spill on each side.
-          width: radius * 2 + tier.spread * 2,
+          // the two above it are that plus a fixed spill on each side, and the
+          // filament is light living inside the solid.
+          width,
           color: 0xffffff,
           alpha: tier.alpha,
           cap: 'round',
@@ -275,6 +330,7 @@ export class SinusBackdrop extends Container {
     side.glow.tint = hue;
     side.halo.tint = hue;
     side.core.tint = lerpColor(hue, 0xffffff, SINUS.line.lift);
+    side.filament.tint = lerpColor(hue, 0xffffff, SINUS.line.filamentLift);
 
     const alpha = SINUS.alphaHot + (SINUS.alphaClear - SINUS.alphaHot) * p;
 
@@ -324,6 +380,8 @@ export class SinusBackdrop extends Container {
 
     this.septum.halo.tint = hue;
     this.septum.core.tint = lerpColor(hue, 0xffffff, SINUS.line.lift);
+    this.septum.filament.tint = lerpColor(hue, 0xffffff, SINUS.line.filamentLift);
+
   }
 }
 

@@ -3,21 +3,32 @@ import { Assets } from 'pixi.js';
 /**
  * Asset manifest.
  *
- * Brickstorm draws its own art at runtime (see game/textures.js), so the bundles
- * ship empty — the game boots instantly and the build has no binary payload.
+ * Empty again. The game draws all of its art at runtime (see game/textures.js),
+ * so it boots without waiting on anything and the build carries no binary
+ * payload — which is where this started.
  *
- * The loader is fully wired regardless: drop spritesheets, fonts or audio into
- * `public/assets/`, list them here, and the boot screen will show real progress
- * for them. `src` may be an array of formats (['x.webp', 'x.png']) and Pixi will
- * choose the best one the browser supports.
+ * THE FOUR FACE PNGs ARE STILL IN `public/assets/`, deliberately. They were
+ * loaded here for the reactive face that used to sit in the middle of the
+ * wireframe; that feature is parked for reuse elsewhere, not abandoned, so the
+ * artwork stays on disk rather than being deleted and re-exported later. They
+ * are simply no longer loaded — four PNGs is around 80KB of boot time to spend
+ * on textures nothing draws.
+ *
+ * To bring them back, put them in `preload` rather than `game`: boot-scene.js
+ * blocks on `preload` and only then hands over to the menu, whereas `game` is a
+ * background load with no guarantee it has landed before a scene needs it.
+ *
+ *   { alias: 'face-sad', src: 'face-sad.png' }, ...and happy, surprised, sneeze
+ *
+ * `src` may be an array of formats (['x.webp', 'x.png']) and Pixi will choose
+ * the best one the browser supports. Do not list a format that is not actually
+ * on disk: the picker trusts the list and will happily 404.
  */
 export const manifest = {
   bundles: [
     {
       name: 'preload',
-      assets: [
-        // { alias: 'atlas', src: 'sprites/atlas.json' },
-      ],
+      assets: [],
     },
     {
       name: 'game',

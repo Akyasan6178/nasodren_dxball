@@ -1,6 +1,6 @@
 import { Container, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
-import { MUCUS, VFX } from './config.js';
+import { MUCUS, PETAL, VFX } from './config.js';
 import { TEX } from './textures.js';
 import { cosmeticRandom } from '../core/rng.js';
 
@@ -270,8 +270,49 @@ export class Particles extends Container {
       aspect: MUCUS.aspect,
       spread: Math.PI * 0.95,
       direction: -Math.PI / 2,
-      soft: true,
+      // A purpose-built teardrop rather than TEX.spark squashed by `aspect`.
+      // The squash is still applied on top: it stretches the drop along the
+      // axis its taper already points down, which `spin: 0` holds upright.
+      texture: TEX.droplet,
       bloom: true,
+    });
+  }
+
+  /**
+   * Cyclamen petals: the active ingredient, thrown off a brick as it breaks.
+   *
+   * The visual half of the healing read. The droplets that fire alongside these
+   * are what the cavity is losing; the petals are what is doing the work, so
+   * they behave like the opposite substance — barely any launch energy left
+   * after the first tenth of a second (`drag`), a fifth of the droplets'
+   * gravity, and nearly twice the life. The result is fluid draining fast past
+   * petals still drifting down through it.
+   *
+   * Emitted into a wide upward cone for the same reason `droplets` is: matter
+   * leaving downward-only reads as the brick leaking rather than opening.
+   *
+   * Plain layer, not the bloomed one. See PETAL in config.js — petals are
+   * matter and should not glow like the fluid, and the bloom layer's budget is
+   * already committed to the droplets on the very cascades where it is tightest.
+   */
+  petals(x, y, { count = PETAL.count, speed = PETAL.speed, size = PETAL.size, colors = PETAL.colors } = {}) {
+    this.burst(x, y, {
+      count,
+      colors,
+      speed,
+      speedVariance: 0.7,
+      life: PETAL.life,
+      lifeVariance: 0.45,
+      size,
+      endScale: 0.7,
+      gravity: PETAL.gravity,
+      // Well below the droplets' 0.985: a petal has almost no momentum to
+      // carry, so it sheds the launch impulse and then simply falls.
+      drag: 0.9,
+      spin: PETAL.spin,
+      spread: Math.PI * 1.15,
+      direction: -Math.PI / 2,
+      texture: TEX.petal,
     });
   }
 

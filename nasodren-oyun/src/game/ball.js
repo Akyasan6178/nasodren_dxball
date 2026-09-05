@@ -1,8 +1,9 @@
 import { Container, Sprite } from 'pixi.js';
-import { BALL } from './config.js';
+import { BALL, CYCLAMEN } from './config.js';
 import { TEX } from './textures.js';
 import { PLASMA } from './config.js';
 import { PlasmaTrail } from './plasma-trail.js';
+import { cosmeticRandom } from '../core/rng.js';
 
 const FIRE_TINT = 0xff9130;
 const THROUGH_TINT = 0xa963ff;
@@ -24,9 +25,26 @@ export class Ball extends Container {
     this.glow.scale.set(0.42);
     this.addChild(this.glow);
 
-    this.body = new Sprite(TEX.ball);
+    this.body = new Sprite(TEX.cyclamenBall);
     this.body.anchor.set(0.5);
     this.addChild(this.body);
+
+    /**
+     * Design-space scale for the baked flower.
+     *
+     * Read off the texture rather than hard-coded, because the cyclamen is
+     * drawn and baked far larger than the ball is rendered — see
+     * CYCLAMEN_BAKE_R in textures.js for why. Both bakes are the same
+     * dimensions, so this is computed once and survives the skin swap.
+     */
+    this._bodyScale = (BALL.radius * CYCLAMEN.visualScale * 2) / this.body.texture.width;
+    this.body.scale.set(this._bodyScale);
+
+    /**
+     * Which way this flower turns. Randomised per ball so a Multi-Ball split
+     * does not put three identical spinners on screen turning in lockstep.
+     */
+    this._spinDir = cosmeticRandom() < 0.5 ? -1 : 1;
 
     this.radius = BALL.radius;
     this.speed = BALL.baseSpeed;
@@ -125,15 +143,35 @@ export class Ball extends Container {
     this.refreshTint();
   }
 
+  /**
+   * Pick the flower bake that suits the tint about to be applied.
+   *
+   * A tint is a multiply. The cyclamen's own magenta is what makes it a
+   * cyclamen, but multiplying Fire's orange over magenta gives brown and
+   * Through's violet gives near-black — the power-up stops being legible at the
+   * exact moment it is the most important thing on screen. So a tinted ball
+   * draws the pale bake, which carries the flower's shape and shading with the
+   * colour stripped out, and comes back to the coloured one when it is plain.
+   *
+   * The two textures are the same size, so the swap does not disturb
+   * `_bodyScale`, and both live in the atlas from boot — no load, no reflow.
+   */
+  _setSkin(tinted) {
+    const texture = tinted ? TEX.cyclamenBallPale : TEX.cyclamenBall;
+    if (this.body.texture !== texture) this.body.texture = texture;
+  }
+
   refreshTint() {
     // Plasma owns the sprite's look outright; nothing else may repaint it.
     if (this.isPlasmaMode) {
+      this._setSkin(true);
       this.body.tint = PLASMA.tint;
       this.glow.tint = PLASMA.tint;
       return;
     }
 
     const tint = this.fire ? FIRE_TINT : this.through ? THROUGH_TINT : NORMAL_TINT;
+    this._setSkin(tint !== NORMAL_TINT);
     this.body.tint = tint;
     this.glow.tint = tint;
     this.glow.alpha = this.fire ? 0.95 : this.through ? 0.7 : 0.5;
@@ -207,12 +245,26 @@ export class Ball extends Container {
   }
 
   /**
-   * Once-per-frame update: runs the override countdown and rebuilds the ribbon.
-   * Physics still advances through `step()` inside the collision substep loop.
+   * Once-per-frame update: spins the flower, runs the override countdown and
+   * rebuilds the ribbon. Physics still advances through `step()` inside the
+   * collision substep loop.
+   *
+   * THIS NOW RUNS ON EVERY BALL, EVERY FRAME. It used to be called only from
+   * `_updatePlasmaTrails`, which returns early unless the Purge Protocol is
+   * live — fine when the only thing in here was the plasma countdown, useless
+   * for a flower that has to turn during ordinary play. The scene calls it from
+   * `_updateBalls` instead; see the note there about why it must not be called
+   * from both.
+   *
+   * Only `body` rotates. The glow is a radial falloff, so turning it would be a
+   * transform write for an identical image.
    *
    * @param {number} dt seconds
    */
   update(dt) {
+    this.body.rotation +=
+      dt * CYCLAMEN.spin * (this.speed / BALL.baseSpeed) * this._spinDir;
+
     if (!this.isPlasmaMode) return;
 
     this.trail?.update(this.x, this.y);
