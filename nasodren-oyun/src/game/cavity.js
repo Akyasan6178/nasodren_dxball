@@ -1,12 +1,16 @@
-import { CAVITY, DESIGN } from './config.js';
-import { MAXILLARY_RIGHT, SEPTUM, mirrorAnchors } from './anatomy.js';
+import { CAVITY, DESIGN, SINUS } from './config.js';
+import { SINUS_RIGHT, SEPTUM, mirrorPath } from './anatomy.js';
 
 /**
- * The sinus section: anchors in, strokes and regions out.
+ * The sinus section: authored paths in, strokes and regions out.
  *
- * Coordinates live in anatomy.js. This file does three things with them and
- * nothing else: runs them through a spline, flattens the result to polylines,
- * and publishes the two questions the rest of the game asks of the drawing.
+ * Coordinates live in anatomy.js, written there as real curve commands. This
+ * file does two things with them and nothing else: mirrors the authored right
+ * half to make the left, and flattens both to polylines — then publishes the
+ * questions the rest of the game asks of the drawing. There is no spline here
+ * any more; the three-zone blueprint is authored as curves because a spline
+ * cannot hold a straight wall, a pinched waist and a bumpy wall at once. See
+ * the note at the top of anatomy.js.
  *
  * IT IS SCENERY. Nothing here touches the ball. The playfield is the plain
  * rectangle it always was — `GameScene._collideWalls` owns FIELD.left,
@@ -21,13 +25,14 @@ import { MAXILLARY_RIGHT, SEPTUM, mirrorAnchors } from './anatomy.js';
  *   `NOSE_STROKES` — every line in the drawing, with the width to stroke it at
  *   and which side it belongs to. `sinus.js` reads nothing else.
  *
- *   `BRICK_TRACTS` — the two maxillary interiors, and the only regions
+ *   `BRICK_TRACTS` — the two cavity interiors, and the only regions
  *   congestion may occupy. Enforced at level-validation time by
  *   `rectInsideTract`: mucus belongs in the sinuses it is blocking, and a clump
  *   floating in the nasal cavity or out in the open board is what would look
  *   broken.
  *
- *   `GLOW_REGIONS` — what the inflammation gradient is filled into, per side.
+ *   `GLOW_REGIONS` and `GLOW_FOCI` — what the inflammation gradient is filled
+ *   into, per side, and the point in each one it is brightest at.
  *   Currently the same two polygons as the tracts, kept separate because the
  *   two answer different questions and have already diverged once.
  *
@@ -37,64 +42,20 @@ import { MAXILLARY_RIGHT, SEPTUM, mirrorAnchors } from './anatomy.js';
 const CX = DESIGN.width / 2;
 
 /**
- * A closed Catmull-Rom spline through every anchor, written out as cubics.
- *
- * Every structure in this section is a closed loop, which is why this is the
- * only spline left in the file — the open variant that used to sit beside it
- * went with the last of the open walls.
- *
- * WHY A SPLINE AND NOT HAND-PLACED CURVE HANDLES. The brief for this drawing is
- * "no straight robotic lines", and hand-authored beziers are exactly how you
- * get them: making a chain of curves smooth by hand means putting every control
- * point on the tangent line it shares with its neighbour, and the segments end
- * up so constrained they flatten out. A Catmull-Rom takes each anchor's tangent
- * from its two neighbours, so smoothness is structural rather than something to
- * verify, and every segment carries its own curvature change. Anchors can be
- * dragged anywhere and the outline stays organic, which is what makes anatomy.js
- * a file a designer can actually edit.
- *
- * Tangents wrap with a modulo because a closed shape has no ends. Clamping them
- * instead would leave a flat spot at whichever anchor happened to be authored
- * first — the kind of defect that reads as amateur without being locatable.
- *
- * `tension` 0.5 is the standard Catmull-Rom. Higher overshoots between anchors;
- * lower pulls toward straight lines.
- */
-function closedSplineThrough(anchors, tension = 0.5) {
-  const n = anchors.length;
-  const at = (i) => anchors[(i + n) % n];
-
-  const tangent = anchors.map((_, i) => [
-    (at(i + 1)[0] - at(i - 1)[0]) * tension,
-    (at(i + 1)[1] - at(i - 1)[1]) * tension,
-  ]);
-  const tan = (i) => tangent[(i + n) % n];
-
-  const cmds = [['M', anchors[0][0], anchors[0][1]]];
-
-  for (let i = 0; i < n; i++) {
-    const [ax, ay] = at(i);
-    const [bx, by] = at(i + 1);
-
-    cmds.push([
-      'C',
-      ax + tan(i)[0] / 3, ay + tan(i)[1] / 3,
-      bx - tan(i + 1)[0] / 3, by - tan(i + 1)[1] / 3,
-      bx, by,
-    ]);
-  }
-
-  return cmds;
-}
-
-/**
  * Flatten a path to a polyline.
  *
  * Segment count comes from the control-polygon length rather than a fixed
  * subdivision, so a long lazy curve and a short tight one both end up with
- * roughly `tolerance`-pixel segments. Uniform segment length matters for the
- * broadphase below: one 200px segment would be filed into thirty cells at once
- * and undo the whole point of bucketing.
+ * roughly `tolerance`-pixel segments.
+ *
+ * STRAIGHT RUNS ARE SUBDIVIDED TOO, which looks like waste and is not. The
+ * containment tests below are happy with a 240px chord — a segment is a segment
+ * to a point-in-polygon test — but the glow is not: sinus.js derives each
+ * cavity's hot spot from the CENTROID OF THESE POINTS, and the medial wall is
+ * now one straight line down a shape whose every other edge is a curve. Emitted
+ * as two points it contributes two samples against the lateral wall's sixty,
+ * and the focus it drags outward is the focus the whole inflammation gradient
+ * is built around. Uniform density is what keeps the centroid a centroid.
  */
 function flattenPath(cmds, tolerance) {
   const pts = [];
@@ -102,10 +63,24 @@ function flattenPath(cmds, tolerance) {
   let cy = 0;
 
   for (const c of cmds) {
-    if (c[0] === 'M' || c[0] === 'L') {
+    if (c[0] === 'M') {
       cx = c[1];
       cy = c[2];
       pts.push([cx, cy]);
+      continue;
+    }
+
+    if (c[0] === 'L') {
+      const [, ex, ey] = c;
+      const steps = Math.max(1, Math.ceil(Math.hypot(ex - cx, ey - cy) / tolerance));
+
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        pts.push([cx + (ex - cx) * t, cy + (ey - cy) * t]);
+      }
+
+      cx = ex;
+      cy = ey;
       continue;
     }
 
@@ -163,28 +138,40 @@ const F = CAVITY.flatten;
  * anything on the midline. `sinus.js` tints off this field directly rather than
  * from a table keyed by id — with a table, adding a structure and forgetting
  * its entry means a structure that is silently never drawn.
+ *
+ * `closed` says the authored path is a loop whose last point must land back on
+ * its first. Nothing here enforces it — a gap in a closed outline is invisible
+ * to every consumer, which is exactly why it is declared rather than derived:
+ * `inPolygon` closes the ring implicitly and gives the right answer regardless,
+ * so a broken loop shows up only as a hole in the neon that no test is looking
+ * for. `check:nose` reads this flag and looks for it.
  */
-const stroke = (id, path, radius, side) => ({
+const stroke = (id, path, radius, side, closed = true) => ({
   id,
   path,
   points: flattenPath(path, F),
   radius,
   side,
+  closed,
 });
 
-const MAX_R_PATH = closedSplineThrough(MAXILLARY_RIGHT);
-const MAX_L_PATH = closedSplineThrough(mirrorAnchors(MAXILLARY_RIGHT));
+const SINUS_LEFT = mirrorPath(SINUS_RIGHT);
 
 /**
  * Every line in the drawing. Three of them.
  *
- * Order is paint order: the two sinuses first, the septum last so the hairline
+ * Two continuous cavity outlines and the septum between them. Each outline runs
+ * all three zones — frontal, ethmoid, maxillary — as one closed path, so a side
+ * is one Graphics tinted by one clearance value and the neon reads as one tube
+ * from the brow to the floor.
+ *
+ * Order is paint order: the two cavities first, the septum last so the hairline
  * on the midline stays the crispest thing in the section.
  */
 export const NOSE_STROKES = [
-  stroke('maxillary-l', MAX_L_PATH, CAVITY.wallRadius, 0),
-  stroke('maxillary-r', MAX_R_PATH, CAVITY.wallRadius, 1),
-  stroke('septum', SEPTUM, CAVITY.septumRadius, null),
+  stroke('sinus-l', SINUS_LEFT, CAVITY.wallRadius, 0),
+  stroke('sinus-r', SINUS_RIGHT, CAVITY.wallRadius, 1),
+  stroke('septum', SEPTUM, CAVITY.septumRadius, null, false),
 ];
 
 /**
@@ -201,18 +188,24 @@ export const SEPTUM_X = CX;
 const byId = (id) => NOSE_STROKES.find((s) => s.id === id).points;
 
 /**
- * The two maxillary interiors: the only regions congestion may occupy.
+ * The two cavity interiors: the only regions congestion may occupy.
  *
- * Index 0 is the left sinus and 1 the right, matching the order every per-side
+ * Index 0 is the left side and 1 the right, matching the order every per-side
  * array in this codebase uses.
  *
- * NOT THE NASAL CAVITY between them. It is 32px of dark with a hairline down
+ * THE WHOLE PASSAGE, ALL THREE ZONES, and that is a containment rule rather
+ * than a placement one. A brick is legal anywhere inside this outline, which in
+ * principle includes the ethmoid channel and the frontal cavity — but the
+ * channel is only ~35px of clear width, so nothing but a small clump fits there
+ * once BRICK.scatter's margin is taken off, and the frontal roof clears the top
+ * of the brick grid entirely. The geometry does the filtering; run
+ * `npm run check:nose` for the map of what each shape may actually occupy.
+ *
+ * NOT THE NASAL CAVITY between the two. It is 32px of dark with a hairline down
  * it, it is the lane the ball travels up, and mucus drawn there would bury the
- * septum that gives the section its scale. The maxillary sinuses are also where
- * fluid actually collects in sinusitis, so this is the rare case where the game
- * constraint and the anatomy want the same thing.
+ * septum that gives the section its scale.
  */
-export const BRICK_TRACTS = [byId('maxillary-l'), byId('maxillary-r')];
+export const BRICK_TRACTS = [byId('sinus-l'), byId('sinus-r')];
 
 /**
  * What the inflammation gradient is filled into, per side.
@@ -220,11 +213,59 @@ export const BRICK_TRACTS = [byId('maxillary-l'), byId('maxillary-r')];
  * Still a list per side rather than a single polygon, even though each side is
  * currently one shape. That list is what let a side hold two air spaces at once
  * before the drawing was simplified; keeping it costs one array literal, and
- * collapsing it to a bare polygon would have to be undone by whoever adds the
- * next one. sinus.js gives every polygon in the list its own focus, which is a
- * correctness requirement rather than a nicety — see the note there.
+ * collapsing it to a bare polygon would have to be undone by whoever splits the
+ * frontal sinus back out into its own loop. sinus.js gives every polygon in the
+ * list its own focus, which is a correctness requirement rather than a nicety —
+ * see the note there.
  */
-export const GLOW_REGIONS = [[byId('maxillary-l')], [byId('maxillary-r')]];
+export const GLOW_REGIONS = [[byId('sinus-l')], [byId('sinus-r')]];
+
+/**
+ * Where the inflammation gradient is brightest, per polygon of GLOW_REGIONS.
+ *
+ * IT LIVES HERE RATHER THAN IN sinus.js BECAUSE IT IS A GEOMETRIC INVARIANT
+ * AND IT HAS BEEN BROKEN ONCE. `gradientStack` builds its falloff by scaling a
+ * polygon about this point, so a focus OUTSIDE the polygon does not dim that
+ * region — it marches every layer out of it and the cavity goes dark. That is
+ * a property of these coordinates, not of the renderer, and a renderer is a
+ * bad place to keep something `check:nose` has to be able to assert.
+ *
+ * AREA-WEIGHTED, which is the part that broke. Averaging the outline points
+ * weights an edge by how many samples it happens to carry, so a long thin
+ * passage counts for as much as the wide chamber it opens into; on this
+ * three-zone section that put the focus in the ethmoid channel — the ~35px
+ * pinch between the frontal cavity and the wing — and a few pixels outside the
+ * medial wall once the medial bias had pulled on it. The shoelace centroid
+ * weights by area, so the maxillary flare wins by the margin its size deserves
+ * and the light pools in the belly of the passage, over the bricks.
+ *
+ * The bias then pulls it toward the midline, because that is where a sinus
+ * drains from and where mucosal thickening starts. Purely a look — but it is
+ * the look of a scan rather than of a lamp in a box.
+ */
+function areaCentroid(points) {
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const cross = points[j][0] * points[i][1] - points[i][0] * points[j][1];
+    a += cross;
+    cx += (points[j][0] + points[i][0]) * cross;
+    cy += (points[j][1] + points[i][1]) * cross;
+  }
+
+  a *= 0.5;
+
+  return { x: cx / (6 * a), y: cy / (6 * a) };
+}
+
+export const GLOW_FOCI = GLOW_REGIONS.map((polys) =>
+  polys.map((points) => {
+    const { x, y } = areaCentroid(points);
+    return { x: x + (CX - x) * SINUS.glow.medialBias, y };
+  }),
+);
 
 /* ------------------------------------------------- design-time queries -- */
 

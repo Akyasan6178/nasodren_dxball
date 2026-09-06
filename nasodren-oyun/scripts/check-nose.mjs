@@ -1,11 +1,11 @@
 /**
  * Geometry guard and layout tool for the sinus.
  *
- * The wireframe is authored as anchor points and everything else is derived
- * from them: the drawn strokes, the two cavity polygons the glow fills, and —
+ * The wireframe is authored as curve commands in anatomy.js and everything else
+ * is derived from them: the drawn strokes, the two cavity polygons the glow fills, and —
  * since the pivot — the regions a brick is allowed to occupy. Nothing here
  * touches the ball any more; the playfield is the plain FIELD rectangle. What
- * dragging an anchor CAN still do is push congestion out of the passage it is
+ * moving a control point CAN still do is push congestion out of the passage it is
  * meant to be blocking, or leave a layout with nowhere legal to put a clump,
  * and neither is visible in a screenshot.
  *
@@ -14,7 +14,15 @@
  */
 import { BRICK, GRID, BRICK_W, BRICK_H, FIELD, PADDLE } from '../src/game/config.js';
 import { LEVELS, validateLevels } from '../src/game/levels.js';
-import { NOSE_STROKES, MIDLINE_IDS, SEPTUM_X, rectInsideTract } from '../src/game/cavity.js';
+import {
+  NOSE_STROKES,
+  MIDLINE_IDS,
+  SEPTUM_X,
+  GLOW_REGIONS,
+  GLOW_FOCI,
+  rectInsideTract,
+  insideGlow,
+} from '../src/game/cavity.js';
 
 const problems = [];
 const notes = [];
@@ -50,6 +58,46 @@ for (const [i, level] of LEVELS.entries()) {
     });
   });
   check(left === right, `level ${i + 1} "${level.name}" starts balanced (${left} left, ${right} right)`);
+}
+
+/* --- 4. every closed outline must actually close ------------------------ */
+//
+// THE ONE DEFECT IN THIS DRAWING THAT NOTHING ELSE CAN SEE. anatomy.js is hand-
+// authored curve commands now, and a loop whose closing run stops short of the
+// point it opened on is invisible to every consumer: the crossing test closes
+// the ring implicitly and keeps answering correctly, the glow fills the shape it
+// meant to, and the only symptom is a length of missing neon on screen. It has
+// already happened once, when the frontal roof was moved and the medial wall
+// underneath it was left ending at the old height.
+//
+// A pixel of slack, because these are flattened curve endpoints rather than the
+// authored numbers, and an exact-equality test would be a trap for the next
+// person who closes a loop with a curve instead of a line.
+for (const st of NOSE_STROKES) {
+  if (!st.closed) continue;
+  const [fx, fy] = st.points[0];
+  const [lx, ly] = st.points[st.points.length - 1];
+  const gap = Math.hypot(lx - fx, ly - fy);
+  check(gap < 1, `'${st.id}' closes (${gap.toFixed(2)}px between its ends)`);
+}
+
+/* --- 4b. every glow focus must sit inside the shape it lights ---------- */
+//
+// sinus.js builds each cavity's gradient by scaling its polygon TOWARD this
+// point. Inside, that is a falloff. Outside, it is not a dimmer glow — every
+// layer marches out of the cavity and the passage goes dark, which is a whole
+// half of the board lit wrongly with nothing in the drawing to explain it.
+// It is one dot product away from being unnoticeable in a screenshot, and the
+// three-zone section walked straight into it: a pinched waist between two
+// bulges puts the naive centroid in the pinch.
+for (const [i, polys] of GLOW_REGIONS.entries()) {
+  polys.forEach((_, j) => {
+    const f = GLOW_FOCI[i][j];
+    check(
+      insideGlow(f.x, f.y),
+      `side ${i} region ${j} lights from inside itself (focus ${f.x.toFixed(0)}, ${f.y.toFixed(0)})`,
+    );
+  });
 }
 
 /* --- 5. the section must fit the board --------------------------------- */
@@ -113,10 +161,15 @@ check(capacity >= 20, `the tracts can hold a layout (${capacity} cells usable by
 /* --- plan view ---------------------------------------------------------- */
 const W = 92;
 const H = 44;
-const PX0 = 100;
-const PX1 = 540;
-const PY0 = 80;
-const PY1 = 380;
+// Framed on the geometry rather than on fixed numbers. The window used to be
+// four literals fitted to whatever the drawing was at the time, which is a trap:
+// redraw the section wider and the tool silently crops the new cheekbones off
+// the very picture you are redrawing them in. A little padding so the outermost
+// stroke lands inside the frame instead of on its edge.
+const PX0 = minX - 6;
+const PX1 = maxX + 6;
+const PY0 = minY - 6;
+const PY1 = maxY + 6;
 const grid = Array.from({ length: H }, () => Array(W).fill(' '));
 const plot = (x, y, ch) => {
   const c = Math.round(((x - PX0) / (PX1 - PX0)) * (W - 1));
@@ -130,9 +183,10 @@ LEVELS[0].rows.forEach((row, r) => {
     for (let x = bx; x <= bx1; x += 2) for (let y = by; y <= by1; y += 2) plot(x, y, ':');
   });
 });
-// Walked as SEGMENTS, not vertices. A straight run flattens to just its two
-// endpoints — the septum is literally two points — so plotting vertices alone
-// made the tool draw a line as two dots and hid whether it was there at all.
+// Walked as SEGMENTS, not vertices, which matters at this resolution: a plan
+// view is 92 columns across 480 design pixels, so consecutive flattened points
+// land in the same cell and plotting vertices alone draws a dotted line for a
+// solid wall.
 for (const s of NOSE_STROKES) {
   const ch = MIDLINE_IDS.has(s.id) ? '#' : '@';
   for (let i = 0; i < s.points.length - 1; i++) {
@@ -143,7 +197,7 @@ for (const s of NOSE_STROKES) {
   }
 }
 
-console.log('\n  @ maxillary wall   # midline   : congestion (level 1)\n');
+console.log('\n  @ cavity wall   # septum   : congestion (level 1)\n');
 console.log(grid.map((r) => '  ' + r.join('').replace(/\s+$/, '')).join('\n'));
 
 console.log('\n  Usable cells per shape — # full, < left half, > right half, = either half, o small only\n');

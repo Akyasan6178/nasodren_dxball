@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { DESIGN, FIELD, SINUS } from './config.js';
-import { GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
+import { GLOW_FOCI, GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
 
 /**
  * The paranasal sinuses, drawn as a glowing neon coronal section.
@@ -164,39 +164,31 @@ export class SinusBackdrop extends Container {
      * left cools the left alone at its own pace. `target` is what the scene
      * hands in each frame.
      */
-    this.sides = GLOW_REGIONS.map((polys) => {
+    this.sides = GLOW_REGIONS.map((polys, side) => {
       /**
        * EACH POLYGON GETS ITS OWN FOCUS, and that is a correctness rule rather
        * than a refinement. `gradientStack` builds its falloff by scaling the
        * polygon about the focus, so a focus outside the polygon does not dim
        * that region — it marches every layer out of it. A side holds one air
-       * space today and held two before the drawing was simplified; with one
-       * shared focus the second one emptied itself across the board instead of
-       * lighting. A focus has to be inside the shape it lights.
+       * space today and held two before the frontal sinus was folded into the
+       * same outline; with one shared focus the second one emptied itself
+       * across the board instead of lighting. A focus has to be inside the
+       * shape it lights, which is why cavity.js derives these next to the
+       * coordinates and `check:nose` asserts it — see the note there.
        */
       const glow = new Graphics();
       glow.blendMode = 'add';
 
-      const foci = polys.map((points) => {
-        let cx = 0;
-        let cy = 0;
-        for (const [px, py] of points) {
-          cx += px / points.length;
-          cy += py / points.length;
-        }
-
-        // Pulled toward the midline, because that is where each sinus drains
-        // from and where inflammation concentrates. Purely a look — but it is
-        // the look of a scan rather than of a lamp in a box.
-        return { x: cx + (CX - cx) * SINUS.glow.medialBias, y: cy };
-      });
+      const foci = GLOW_FOCI[side];
 
       polys.forEach((points, j) => gradientStack(glow, points, foci[j], SINUS.glow));
 
       return {
         // The throb scales the whole side about one point, so it takes the
-        // first region's focus — the maxillary sinus, which is by far the
-        // larger volume and the one the pulse should look centred on.
+        // first region's focus. With one region per side that is the whole
+        // passage's own centre of area, which lands in the maxillary flare —
+        // by far the largest volume, and the one the pulse should look
+        // centred on.
         focus: foci[0],
         glow,
         halo: new Graphics(),
