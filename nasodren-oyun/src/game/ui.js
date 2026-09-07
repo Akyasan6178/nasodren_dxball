@@ -62,18 +62,28 @@ function _installBitmapFonts() {
 
 /**
  * @param {string} text
- * @param {{size?:number,color?:number,title?:boolean,anchor?:number|[number,number]}} opts
+ * @param {{size?:number,color?:number,title?:boolean,anchor?:number|[number,number],
+ *          wordWrap?:boolean,wordWrapWidth?:number,align?:string}} opts
  */
 export function makeText(text, opts = {}) {
-  const { size = 16, color = 0xffffff, title = false, anchor = 0 } = opts;
+  const {
+    size = 16,
+    color = 0xffffff,
+    title = false,
+    anchor = 0,
+    wordWrap = false,
+    wordWrapWidth,
+    align,
+  } = opts;
 
   const family = title ? FONT_TITLE : FONT_BODY;
+  const wrap = wordWrap ? { wordWrap: true, wordWrapWidth, align: align ?? 'left' } : {};
 
   const t = bitmapReady
-    ? new BitmapText({ text, style: { fontFamily: family, fontSize: size } })
+    ? new BitmapText({ text, style: { fontFamily: family, fontSize: size, ...wrap } })
     : new Text({
         text,
-        style: { fontFamily: STACK, fontSize: size, fontWeight: 'bold', fill: 0xffffff },
+        style: { fontFamily: STACK, fontSize: size, fontWeight: 'bold', fill: 0xffffff, ...wrap },
       });
 
   t.tint = color;

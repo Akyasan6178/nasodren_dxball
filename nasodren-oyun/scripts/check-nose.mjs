@@ -49,7 +49,7 @@ for (const [i, level] of LEVELS.entries()) {
   let right = 0;
   level.rows.forEach((row, r) => {
     [...row].forEach((ch, c) => {
-      if (ch === '.' || ch === 'M') return;
+      if (ch === '.' || ch === 'B') return;
       const box = BRICK.shapes[SHAPE_FOR[ch] ?? 'full'];
       const w = BRICK_W * box.w;
       const x0 = GRID.x + c * GRID.cellW + GRID.gap / 2 + (BRICK_W - w) * box.align;

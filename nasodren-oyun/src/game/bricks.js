@@ -1,23 +1,19 @@
 import { Container, Sprite } from 'pixi.js';
-import { BRICK, BRICK_H, BRICK_W, COLORS, GRID, SCORE } from './config.js';
+import { BRICK, BRICK_H, BRICK_W, BUFF_PULSE, COLORS, GRID, SCORE } from './config.js';
 import { TEX, textureKeyFor } from './textures.js';
+import { lerpColor } from './sinus.js';
+import { cosmeticRandom } from '../core/rng.js';
 
 /**
- * Brick kinds, mirroring the original set.
+ * Brick kinds. Only two remain — everything else (silver/gold/explosive/
+ * invisible) was retired once the HP-tier art took over as the one damage
+ * readout the game needs:
  *
- *   standard    - one hit, palette-coloured
- *   silver      - two hits, cracks between them
- *   gold        - three hits
- *   explosive   - one hit, detonates its 3x3 neighbourhood (chains)
- *   metal       - indestructible, ignored when counting the level as cleared
- *   invisible   - materialises on first contact, then acts as standard
+ *   standard    - tier-textured by current HP (see textureKeyFor)
+ *   bone        - indestructible, ignored when counting the level as cleared
  */
 const CHAR_MAP = {
-  S: { kind: 'silver', hits: 2, points: SCORE.tough },
-  G: { kind: 'gold', hits: 3, points: SCORE.tough * 1.5 },
-  X: { kind: 'explosive', hits: 1, points: SCORE.explosive },
-  M: { kind: 'metal', hits: Infinity, points: 0, breakable: false },
-  I: { kind: 'invisible', hits: 1, points: SCORE.brick * 1.4, hidden: true },
+  B: { kind: 'bone', hits: Infinity, points: 0, breakable: false },
 
   /**
    * Shape variants. A standard one-hit cell in a smaller box, worth the same:
@@ -53,7 +49,7 @@ export class Brick extends Sprite {
   constructor(spec, col, row) {
     const colorIndex = spec.colorIndex ?? row % COLORS.length;
     const shape = spec.shape ?? 'full';
-    super(TEX[textureKeyFor(spec.kind, colorIndex, shape)]);
+    super(TEX[textureKeyFor(spec.kind, colorIndex, shape, spec.hits)]);
 
     this.kind = spec.kind;
     this.shape = shape;
@@ -62,7 +58,6 @@ export class Brick extends Sprite {
     this.maxHits = spec.hits;
     this.hits = spec.hits;
     this.breakable = spec.breakable !== false;
-    this.hidden = spec.hidden === true;
     this.points = Math.round(spec.points ?? SCORE.brick);
     this.removed = false;
 
@@ -102,9 +97,16 @@ export class Brick extends Sprite {
     this.position.set(this.visualX, this.visualY);
     this.rotation = cellNoise(col, row, 3) * BRICK.tilt;
 
-    this.crack = null;
+    // The tier art (brick1/2/3.png) is a fixed source image unrelated to the
+    // cell's own design-space size; the older baked-Graphics textures already
+    // matched it exactly, so this is a no-op for those and the one line that
+    // makes the tier art fit for everything else.
+    this.width = this.bw;
+    this.height = this.bh;
 
-    if (this.hidden) this.alpha = 0;
+    /** Set once by BrickField.buffAllBricks; see applyBuff()/tickPulse(). */
+    this.buffed = false;
+    this._pulseT = 0;
   }
 
   get centerX() {
@@ -115,29 +117,52 @@ export class Brick extends Sprite {
     return this.by + this.bh / 2;
   }
 
-  /** Invisible brick becomes solid on first contact. */
-  reveal() {
-    if (!this.hidden) return;
-    this.hidden = false;
-    this.alpha = 1;
-    this.texture = TEX[textureKeyFor('standard', this.colorIndex, this.shape)];
+  /**
+   * Swaps in the tier texture (brick1/2/3.png) matching this brick's current
+   * `hits` — see `textureKeyFor`. Replaces the older crack-overlay: a tier
+   * swap already tells the player exactly how tough the cell still is, so
+   * there is nothing left for a separate damage decal to add.
+   */
+  _applyTierTexture() {
+    const key = textureKeyFor(this.kind, this.colorIndex, this.shape, this.hits);
+    if (this.texture === TEX[key]) return;
+    this.texture = TEX[key];
+    // A tier swap can jump between textures of different native size (a
+    // baked shape-variant vs. the fixed-size tier art), so the fit has to be
+    // reapplied every time, not just once at construction.
+    this.width = this.bw;
+    this.height = this.bh;
   }
 
-  /** Show accumulated damage on multi-hit bricks. */
+  /** Show accumulated damage on multi-hit bricks by dropping a tier. */
   refreshDamage() {
-    const taken = this.maxHits - this.hits;
-    if (taken <= 0) return;
+    this._applyTierTexture();
+  }
 
-    if (!this.crack) {
-      this.crack = new Sprite(TEX.crack1);
-      // The parent is anchored at 0.5, so a child at the origin sits on the
-      // cell's centre. The crack texture is cell-sized, so it needs the same
-      // anchor to line up rather than hanging off one corner.
-      this.crack.anchor.set(0.5);
-      this.addChild(this.crack);
-    }
-    this.crack.texture = taken >= 2 ? TEX.crack2 : TEX.crack1;
-    this.tint = taken >= 2 ? 0xbfbfbf : 0xdedede;
+  /**
+   * Marks this brick as buffed (see `BrickField.buffAllBricks`) and starts its
+   * permanent breathing pulse — unlike the damage tier, this never reverts
+   * for the rest of the level, which is the whole point: the player has to be
+   * able to tell a hardened cell from an ordinary one at a glance at any
+   * point later in the rally, not just in the second after it happened.
+   *
+   * The starting phase is randomised (cosmetic RNG — this never has to be
+   * reproducible) so a wave of bricks buffed on the same frame settle into an
+   * organic, unsynchronised breathing rather than pulsing in lockstep.
+   */
+  applyBuff() {
+    this.buffed = true;
+    this._pulseT = cosmeticRandom() * Math.PI * 2;
+    this._applyTierTexture();
+  }
+
+  /** Advances the buff breathing animation. Only ever called while `buffed`. */
+  tickPulse(dt) {
+    this._pulseT += dt * BUFF_PULSE.speed;
+
+    const s = 0.5 + 0.5 * Math.sin(this._pulseT); // 0..1 breathing envelope
+    this.alpha = BUFF_PULSE.alphaMin + (1 - BUFF_PULSE.alphaMin) * s;
+    this.tint = lerpColor(0xffffff, BUFF_PULSE.tint, BUFF_PULSE.tintMix);
   }
 
   snapshot() {
@@ -146,7 +171,7 @@ export class Brick extends Sprite {
       // capsule this break spawns has to come from where the cell was drawn.
       x: this.visualX,
       y: this.visualY,
-      color: this.kind === 'metal' ? 0x8a92a8 : this.color,
+      color: this.color,
       kind: this.kind,
       points: this.points,
       row: this.row,
@@ -166,12 +191,30 @@ export class BrickField extends Container {
     this.grid = [];
     this.remaining = 0;
 
+    /**
+     * The layout's original spec per cell, kept even after the live brick at
+     * that cell is destroyed and its `grid` slot goes back to null.
+     *
+     * This is what lets a 30s respawn tick (see `spawnBricks`) offer only
+     * cells that legitimately held a brick when the level was authored,
+     * rather than any empty cell on the board. On a `cavity: true` level that
+     * matters for more than taste: `check-nose` only ever validated the
+     * authored layout's own cells against the sinus tracts, so a respawn is
+     * only guaranteed geometrically legal if it reuses one of those.
+     */
+    this._originalSpecs = [];
+
+    /** Every currently-buffed brick, ticked once a frame for its breathing pulse. */
+    this._buffedBricks = new Set();
+
     for (let r = 0; r < this.rows; r++) {
       const line = levelDef.rows[r];
       const rowArr = new Array(this.cols).fill(null);
+      const specRow = new Array(this.cols).fill(null);
 
       for (let c = 0; c < this.cols; c++) {
         const spec = this._specFor(line[c], r);
+        specRow[c] = spec;
         if (!spec) continue;
 
         const brick = new Brick(spec, c, r);
@@ -181,6 +224,7 @@ export class BrickField extends Container {
       }
 
       this.grid.push(rowArr);
+      this._originalSpecs.push(specRow);
     }
   }
 
@@ -208,21 +252,13 @@ export class BrickField extends Container {
   }
 
   /**
-   * Apply damage to a brick and resolve any explosion chain it starts.
+   * Apply damage to a brick.
    *
-   * @returns {{revealed:boolean, damaged:boolean, blocked:boolean, destroyed:object[]}}
+   * @returns {{damaged:boolean, blocked:boolean, destroyed:object[]}}
    */
   damage(brick, amount = 1, { fire = false } = {}) {
-    const out = { revealed: false, damaged: false, blocked: false, destroyed: [] };
+    const out = { damaged: false, blocked: false, destroyed: [] };
     if (!brick || brick.removed) return out;
-
-    // An invisible brick spends the first hit simply appearing, unless the ball
-    // is on fire — fire burns straight through the reveal.
-    if (brick.hidden) {
-      brick.reveal();
-      out.revealed = true;
-      if (!fire) return out;
-    }
 
     if (!brick.breakable) {
       out.blocked = true;
@@ -237,31 +273,13 @@ export class BrickField extends Container {
       return out;
     }
 
-    this._destroyChain(brick, out.destroyed);
+    this._destroyBrick(brick, out.destroyed);
     return out;
   }
 
-  /** Breadth-first detonation so explosive clusters cascade exactly once each. */
-  _destroyChain(start, acc) {
-    const queue = [start];
-
-    while (queue.length) {
-      const brick = queue.shift();
-      if (!brick || brick.removed || !brick.breakable) continue;
-
-      this._remove(brick);
-      acc.push(brick.snapshot());
-
-      if (brick.kind !== 'explosive') continue;
-
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const n = this.at(brick.col + dc, brick.row + dr);
-          if (n && n.breakable) queue.push(n);
-        }
-      }
-    }
+  _destroyBrick(brick, acc) {
+    this._remove(brick);
+    acc.push(brick.snapshot());
   }
 
   _remove(brick) {
@@ -296,6 +314,90 @@ export class BrickField extends Container {
         const b = this.grid[r][c];
         if (b && !b.removed) yield b;
       }
+    }
+  }
+
+  /**
+   * 30s dynamic mechanic: refill up to `count` previously-broken cells with
+   * fresh one-hit standard bricks.
+   *
+   * Candidates are cells that are currently empty (`grid[r][c]` is null) but
+   * held a breakable brick in the authored layout (`_originalSpecs`) — never
+   * a cell that was always empty. That is what keeps a cavity level's
+   * containment guarantee intact without this method needing to know
+   * anything about the sinus geometry itself: every one of those cells
+   * already passed `check-nose` once, when the level was authored.
+   *
+   * Uses `Math.random()`, the shared gameplay sequence, rather than
+   * `cosmeticRandom()` — this changes `remaining` and therefore the level's
+   * own clear condition, so it belongs with capsule drops and power-up rolls,
+   * not with cosmetic jitter. Safe to call with nothing legal left to fill;
+   * it simply does nothing.
+   */
+  spawnBricks(count) {
+    const candidates = [];
+
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (this.grid[r][c]) continue;
+
+        const original = this._originalSpecs[r]?.[c];
+        if (original && original.breakable !== false) candidates.push([c, r]);
+      }
+    }
+
+    if (!candidates.length) return;
+
+    const n = Math.min(count, candidates.length);
+    for (let i = 0; i < n; i++) {
+      // Partial Fisher-Yates: only need `n` distinct picks, not a full shuffle.
+      const j = i + Math.floor(Math.random() * (candidates.length - i));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+
+      const [c, r] = candidates[i];
+      const brick = new Brick({ kind: 'standard', hits: 1, points: SCORE.brick }, c, r);
+      this.grid[r][c] = brick;
+      this.addChild(brick);
+      this.remaining++;
+    }
+  }
+
+  /**
+   * 60s dynamic mechanic, fired once per level: every currently alive
+   * breakable brick gains +1 HP (both `hits` and `maxHits`, dropping it to a
+   * tougher tier texture) and starts a permanent breathing pulse — see
+   * `Brick.applyBuff` — that lasts for the rest of the level, not just a
+   * moment, so a hardened cell stays legible as one all the way to the brick
+   * that finally breaks it.
+   *
+   * Skips bone — already infinite — via `breakable`.
+   */
+  buffAllBricks() {
+    for (const brick of this.all()) {
+      if (!brick.breakable) continue;
+
+      brick.hits += 1;
+      brick.maxHits += 1;
+      brick.applyBuff();
+      this._buffedBricks.add(brick);
+    }
+  }
+
+  /**
+   * Advances every buffed brick's breathing pulse. Cheap outside a level that
+   * has actually reached the 60s mark: the set is empty until then.
+   *
+   * A buffed brick can still be destroyed later in the rally — `_remove`
+   * never has to know that, this just drops it from the set the first time it
+   * notices, rather than animating a Sprite nothing is looking at forever.
+   */
+  tickBuffs(dt) {
+    for (const brick of this._buffedBricks) {
+      if (brick.removed) {
+        this._buffedBricks.delete(brick);
+        continue;
+      }
+      brick.tickPulse(dt);
     }
   }
 }

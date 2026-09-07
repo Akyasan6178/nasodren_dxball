@@ -1,8 +1,9 @@
 import { Graphics } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { DESIGN } from '../game/config.js';
+import { DESIGN, RUN } from '../game/config.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { LevelSelectScene } from './level-select-scene.js';
+import { ReviveScene } from './revive-scene.js';
 
 const NAME_MAX = 8;
 const VALID = /^[A-Z0-9 ]$/;
@@ -80,9 +81,26 @@ export class ResultsScene extends Scene {
       this._offKey = input.onKey((e) => this._onKey(e));
     }
 
-    this.menu = new VerticalMenu(input, audio, { spacing: 48 });
+    // A continue only ever makes sense after a loss — see ReviveScene, which
+    // resumes this same run on the level it ended on.
+    const run = this.params.run;
+    const revivesLeft = !won && run ? RUN.maxRevives - run.revivesUsed : 0;
+    const showRevive = revivesLeft > 0;
+
+    // The extra row needs the menu a little tighter to stay clear of the
+    // bottom edge when high-score name entry is also showing.
+    this.menu = new VerticalMenu(input, audio, { spacing: showRevive ? 44 : 48 });
     this.menu.position.set((DESIGN.width - 260) / 2, this.entering ? 340 : 300);
     this.view.addChild(this.menu);
+
+    if (showRevive) {
+      this.menu.add(
+        new Button(`REVIVE (${revivesLeft} LEFT)`, () => {
+          audio.uiClick();
+          this.ctx.sm.change(ReviveScene, { run, levelIndex: this.params.levelIndex });
+        }, { accent: 0x86e05a }),
+      );
+    }
 
     this.menu.add(
       new Button('PLAY AGAIN', () => {

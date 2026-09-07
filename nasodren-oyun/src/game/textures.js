@@ -1,4 +1,4 @@
-import { Graphics } from 'pixi.js';
+import { Assets, Graphics } from 'pixi.js';
 import { BRICK, BRICK_W, BRICK_H, COLORS, BALL, CYCLAMEN, LASER } from './config.js';
 
 /**
@@ -50,9 +50,8 @@ function shade(color, amount) {
  * away, which is three concentric round-rects and no polygon maths.
  *
  * Alpha lives on the texture rather than on the Sprite so `Brick.alpha` stays
- * free for what already owns it — invisible bricks fading in, and the Sneeze
- * loosening survivors. Two independent things writing one property is how the
- * reveal ends up cancelling the reflex.
+ * free for what already owns it — the Sneeze loosening survivors, and a
+ * buffed cell's permanent breathing pulse (see BUFF_PULSE in config.js).
  */
 function brickFace(color, opts = {}) {
   const {
@@ -100,68 +99,57 @@ function brickFace(color, opts = {}) {
   return g;
 }
 
-function metalFace() {
+/**
+ * The one indestructible surface in the game — metal was retired once bone
+ * took over the role entirely, so this has no sibling to stay distinct from
+ * any more and can afford to be loud about it.
+ *
+ * Ivory body with the same porous cancellous texture as before, but now
+ * rimmed in a stacked cyan glow: several inset strokes fading outward plus
+ * one crisp bright edge, all the same accent the rest of the UI already
+ * reserves for "this matters" (title text, TIP labels, wall edges). An
+ * unbreakable cell reads as special in a vocabulary the player already
+ * knows, rather than a colour invented just for this brick.
+ *
+ * EVERYTHING STAYS INSIDE THE CELL'S OWN BOX. A glow that bled past `w`/`h`
+ * would expand `generateTexture`'s bounds, and `Brick` scales this texture
+ * uniformly onto `bw`/`bh` — a wider baked canvas would shrink the visible
+ * body to make room for the bleed, exactly the mistake the ball's glow
+ * avoids by living on its own separate sprite instead. Insetting the rings
+ * gets the same energised-edge read without that risk.
+ */
+function boneFace() {
   const w = BRICK_W;
   const h = BRICK_H;
+  const radius = BRICK.radius * 0.6;
+  const glowColor = 0x35d0d8;
 
-  // Opaque, and the only brick that is. Metal is not mucus — it is the one
-  // thing on the board the fluid never dissolves, and reading it as solid
-  // against everything else being translucent is exactly the information the
-  // player needs before they waste a rally on it.
-  const g = brickFace(0x8a92a8, { speckle: false, alpha: 1, radius: BRICK.radius * 0.45 });
+  const g = brickFace(0xe6ddc6, { speckle: false, alpha: 1, radius });
 
-  // Brushed streaks, clipped to the cell so they cannot spill past its corners.
-  for (let x = -h; x < w; x += 5) {
-    g.poly([
-      Math.max(1, x), h - 1,
-      Math.max(1, x + 2), h - 1,
-      Math.min(w - 1, x + 2 + h), 1,
-      Math.min(w - 1, x + h), 1,
-    ]).fill({ color: 0xffffff, alpha: 0.06 });
+  // Cancellous pores: small dark voids scattered across the face. The one
+  // texture cue that reads as bone rather than as painted stone.
+  const pores = [
+    [w * 0.22, h * 0.32, 1.1],
+    [w * 0.62, h * 0.22, 0.9],
+    [w * 0.42, h * 0.55, 1.3],
+    [w * 0.78, h * 0.58, 1.0],
+    [w * 0.14, h * 0.68, 0.8],
+    [w * 0.56, h * 0.78, 1.0],
+  ];
+  for (const [px, py, pr] of pores) {
+    g.circle(px, py, pr).fill({ color: 0x8a7f68, alpha: 0.4 });
   }
-  return g;
-}
 
-function explosiveFace() {
-  const w = BRICK_W;
-  const h = BRICK_H;
-  const g = brickFace(0xd6202f, { speckle: false, alpha: Math.min(1, BRICK.alpha + 0.18) });
-
-  const cx = w / 2;
-  const cy = h / 2;
-
-  // Starburst core.
-  const spikes = [];
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const r = i % 2 === 0 ? 7 : 3.2;
-    spikes.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.62);
+  // The glow: a few progressively inset rings, widest and faintest first, so
+  // they read as a soft light bleeding in from the edge rather than as a
+  // hard band, then one crisp bright line exactly on the boundary.
+  for (let i = 3; i >= 1; i--) {
+    const inset = i * 1.3;
+    g.roundRect(inset, inset, w - inset * 2, h - inset * 2, Math.max(0, radius - inset))
+      .stroke({ width: 1.4, color: glowColor, alpha: 0.16 });
   }
-  g.poly(spikes).fill({ color: 0xffd23f });
-  g.circle(cx, cy, 2.4).fill({ color: 0xfff6d0 });
+  g.roundRect(0.5, 0.5, w - 1, h - 1, radius).stroke({ width: 1.8, color: glowColor, alpha: 0.95 });
 
-  return g;
-}
-
-function crackOverlay(level) {
-  const w = BRICK_W;
-  const h = BRICK_H;
-  const g = new Graphics();
-  const seams =
-    level === 1
-      ? [[w * 0.34, 2, w * 0.46, h - 3]]
-      : [
-          [w * 0.3, 2, w * 0.44, h - 3],
-          [w * 0.62, 1, w * 0.5, h - 2],
-          [w * 0.72, h * 0.4, w * 0.9, h - 4],
-        ];
-
-  for (const [x1, y1, x2, y2] of seams) {
-    g.moveTo(x1, y1)
-      .lineTo((x1 + x2) / 2 + 3, (y1 + y2) / 2)
-      .lineTo(x2, y2)
-      .stroke({ width: 1.4, color: 0x000000, alpha: 0.55 });
-  }
   return g;
 }
 
@@ -302,31 +290,50 @@ function dropletShape() {
  * @param {import('pixi.js').Renderer} renderer
  */
 export function buildTextures(renderer) {
-  // Every palette colour in every shape. Twenty-four small textures rather
-  // than one scaled at draw time: a half-width cell is not a squashed full one
-  // — its corner radius, rim highlight and membrane all have to stay the same
-  // physical size, or the small clumps read as a different material.
+  // Every palette colour in every SHAPE VARIANT — halfLeft/halfRight/small
+  // only, not full. A full-shape standard cell goes through the HP tier
+  // system below instead (see textureKeyFor), so a per-colour full-cell bake
+  // would never be read; a half-width cell is not a squashed full one either
+  // way — its corner radius, rim highlight and membrane all have to stay the
+  // same physical size, or the small clumps read as a different material.
+  const shapeVariants = Object.keys(BRICK.shapes).filter((s) => s !== 'full');
   COLORS.forEach((color, i) => {
-    for (const shape of Object.keys(BRICK.shapes)) {
+    for (const shape of shapeVariants) {
       TEX[brickKey(i, shape)] = bake(renderer, brickFace(color, { shape }));
     }
   });
 
-  TEX.brickSilver = bake(renderer, brickFace(0xc8ccd8));
-  TEX.brickGold = bake(renderer, brickFace(0xf0b429));
-  TEX.brickMetal = bake(renderer, metalFace());
-  TEX.brickExplosive = bake(renderer, explosiveFace());
+  // HP-tier fallbacks for the standard full-cell brick — see textureKeyFor.
+  // This is only ever seen if brick1/2/3.png fail to load;
+  // `applyImageAssets()` overwrites all three keys with the real art the
+  // moment the preload bundle resolves.
+  TEX.brickTier1 = bake(renderer, brickFace(0x35d0d8));
+  TEX.brickTier2 = bake(renderer, brickFace(0xffd23f));
+  TEX.brickTier3 = bake(renderer, brickFace(0xff4d5a));
 
-  TEX.crack1 = bake(renderer, crackOverlay(1));
-  TEX.crack2 = bake(renderer, crackOverlay(2));
+  TEX.brickBone = bake(renderer, boneFace());
+
+  // TransitionScene's two flanking loading icons. Same fallback contract as
+  // everything else in this file: a plain baked placeholder until
+  // `applyImageAssets()` swaps in loading2.png/loading3.png.
+  TEX.loadingHeart = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xff4d5a));
+  TEX.loadingFlame = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xffd23f));
 
   TEX.ball = bake(renderer, ballFace());
   TEX.glow = bake(renderer, radialGlow(28, 0xffffff));
 
   // The cyclamen, in two bakes: the flower in its own colours for the default
   // ball, and a white one for every state that tints. See ball.js.
+  //
+  // This is the fallback: `applyImageAssets()` overwrites both keys with the
+  // real cyclamen-ball.png once it lands, so these only ever appear if that
+  // load fails.
   TEX.cyclamenBall = bake(renderer, cyclamenFlower(false));
   TEX.cyclamenBallPale = bake(renderer, cyclamenFlower(true));
+
+  // ReviveScene's centrepiece. Same fallback contract as everything else in
+  // this file: the procedural flower stands in until siklement.png lands.
+  TEX.siklement = bake(renderer, cyclamenFlower(false));
 
   TEX.petal = bake(renderer, petalShape());
   TEX.droplet = bake(renderer, dropletShape());
@@ -362,33 +369,84 @@ export function buildTextures(renderer) {
   return TEX;
 }
 
+/**
+ * Phase 1 of the visual reskin: swap the procedural bakes for real artwork.
+ *
+ * Called from boot-scene.js once the `preload` bundle (see core/assets.js)
+ * has resolved, so `background.png`, `cyclamen-ball.png` and `ASSET.png`
+ * (the transition-scene centrepiece) are all already in the Assets cache
+ * before any scene constructs a Sprite from these keys.
+ *
+ * `TEX.cyclamenBall` and `TEX.cyclamenBallPale` both point at the same
+ * texture — there is only one piece of ball artwork, not a separate
+ * white/tintable variant like the two procedural bakes had. `ball.js` still
+ * swaps between the two keys for its power-up states; the swap is just a
+ * no-op now; the tint colour itself still changes.
+ *
+ * Guarded so a failed or still-pending load falls back to the baked
+ * placeholder from `buildTextures()` instead of handing a scene an
+ * undefined texture. `TEX.transitionAsset` has no baked fallback — it is
+ * new artwork with nothing to fall back to — so TransitionScene must only
+ * ever run after this has had a chance to set it.
+ */
+export function applyImageAssets() {
+  const background = Assets.get('background');
+  if (background) TEX.background = background;
+
+  const cyclamenBall = Assets.get('cyclamenBall');
+  if (cyclamenBall) {
+    TEX.cyclamenBall = cyclamenBall;
+    TEX.cyclamenBallPale = cyclamenBall;
+  }
+
+  const transitionAsset = Assets.get('transitionAsset');
+  if (transitionAsset) TEX.transitionAsset = transitionAsset;
+
+  // The HP-tier art. Same fallback contract as the two above: each key keeps
+  // its baked placeholder colour until its real PNG lands.
+  const brickTier1 = Assets.get('brickTier1');
+  if (brickTier1) TEX.brickTier1 = brickTier1;
+  const brickTier2 = Assets.get('brickTier2');
+  if (brickTier2) TEX.brickTier2 = brickTier2;
+  const brickTier3 = Assets.get('brickTier3');
+  if (brickTier3) TEX.brickTier3 = brickTier3;
+
+  const loadingHeart = Assets.get('loadingHeart');
+  if (loadingHeart) TEX.loadingHeart = loadingHeart;
+  const loadingFlame = Assets.get('loadingFlame');
+  if (loadingFlame) TEX.loadingFlame = loadingFlame;
+
+  const siklement = Assets.get('siklement');
+  if (siklement) TEX.siklement = siklement;
+}
+
 /** Atlas key for a standard cell. `full` keeps the original bare key. */
 export const brickKey = (colorIndex, shape) =>
   shape === 'full' ? `brick${colorIndex}` : `brick${colorIndex}_${shape}`;
 
+/** Which HP maps to which tier image — 1 hit left, 2, or 3-and-up. */
+function tierKeyFor(hits) {
+  if (hits <= 1) return 'brickTier1';
+  if (hits === 2) return 'brickTier2';
+  return 'brickTier3';
+}
+
 /**
- * Maps a level-file character to its baked texture key.
+ * Maps a level-file character to its texture key. Only two kinds exist —
+ * standard and bone, see bricks.js's CHAR_MAP — so this is a short rule
+ * rather than the wider dispatch it used to be.
  *
- * ONLY STANDARD CELLS CARRY SHAPE VARIANTS, and that is a design rule rather
- * than an oversight. Silver and gold take multiple hits and show cracks drawn
- * to a full cell; metal has to read as an immovable slab; an explosive
- * detonates its whole 3x3 neighbourhood. Shrinking any of those would make the
- * cell claim something its behaviour does not honour — a small square that
- * blows up its neighbours is a nasty surprise, not a design flourish. A layout
- * that asks for one in a half cell silently gets the full box, which is the
- * safe direction to fail in.
+ * ONLY A FULL-CELL STANDARD BRICK GOES THROUGH THE HP TIER. A half/small
+ * shape variant exists to be packed into a curved space and is always one
+ * hit, so it stays on the palette-coloured baked textures instead, which are
+ * the only ones cut to those smaller boxes. A full-cell standard brick
+ * resolves by its CURRENT `hits` every time `refreshDamage`/`applyBuff` calls
+ * in, which is exactly the information the tier art is there to carry. Bone
+ * keeps its own fixed texture regardless of hits, because it is never meant
+ * to look like it is running low — it never is.
  */
-export function textureKeyFor(kind, colorIndex, shape = 'full') {
-  switch (kind) {
-    case 'silver':
-      return 'brickSilver';
-    case 'gold':
-      return 'brickGold';
-    case 'metal':
-      return 'brickMetal';
-    case 'explosive':
-      return 'brickExplosive';
-    default:
-      return brickKey(colorIndex, shape);
-  }
+export function textureKeyFor(kind, colorIndex, shape = 'full', hits = 1) {
+  if (kind === 'bone') return 'brickBone';
+  if (shape === 'full') return tierKeyFor(hits);
+  return brickKey(colorIndex, shape);
 }

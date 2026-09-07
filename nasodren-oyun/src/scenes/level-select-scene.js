@@ -4,6 +4,7 @@ import { COLORS, DESIGN, RUN, SCORE } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
 import { Button, makeText, panel } from '../game/ui.js';
 import { GameScene } from './game-scene.js';
+import { TransitionScene } from './transition-scene.js';
 
 const COLS = 4;
 const CELL_W = 132;
@@ -43,9 +44,18 @@ export class LevelSelectScene extends Scene {
       const tile = this._buildTile(level, i, unlocked, () => {
         audio.unlock();
         audio.uiClick();
-        sm.change(GameScene, {
-          levelIndex: i,
-          run: { score: 0, lives: RUN.startingLives, nextExtraLife: SCORE.extraLifeEvery },
+        sm.change(TransitionScene, {
+          next: GameScene,
+          params: {
+            levelIndex: i,
+            run: {
+              score: 0,
+              lives: RUN.startingLives,
+              nextExtraLife: SCORE.extraLifeEvery,
+              revivesUsed: 0,
+              usedTips: [],
+            },
+          },
         });
       });
 
@@ -122,6 +132,7 @@ export class LevelSelectScene extends Scene {
         else if (ch === 'S') color = 0xc8ccd8;
         else if (ch === 'G') color = 0xf0b429;
         else if (ch === 'X') color = 0xd6202f;
+        else if (ch === 'B') color = 0xe6ddc6;
         else if (ch === 'I') color = 0x4d7bff;
 
         preview

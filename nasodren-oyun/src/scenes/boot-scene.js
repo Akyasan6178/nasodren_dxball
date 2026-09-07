@@ -2,6 +2,7 @@ import { Graphics } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
 import { loadBundle } from '../core/assets.js';
 import { DESIGN } from '../game/config.js';
+import { applyImageAssets } from '../game/textures.js';
 import { makeText } from '../game/ui.js';
 import { MenuScene } from './menu-scene.js';
 
@@ -43,6 +44,7 @@ export class BootScene extends Scene {
       this.progress = p;
     })
       .then(() => {
+        applyImageAssets();
         this.progress = 1;
         this.done = true;
       })

@@ -40,12 +40,13 @@ export const GRID = {
  * mechanical as well: at this alpha the inflammation glow shows THROUGH the
  * congestion, so a passage that is still blocked still reads as hot.
  *
- * ALPHA IS BAKED INTO THE TEXTURE, not applied to the Sprite. `Brick.alpha` is
- * already spoken for twice over — an invisible brick fades in on it, and the
- * Sneeze reflex dims whatever survives — and a third writer would mean the
- * reveal silently cancelling the reflex. See textures.js.
+ * ALPHA IS BAKED INTO THE TEXTURE, not applied to the Sprite. `Brick.alpha`
+ * is already spoken for twice over — the Sneeze reflex dims whatever
+ * survives, and a buffed cell's permanent breathing pulse (see BUFF_PULSE)
+ * writes it every frame — and a third writer would mean one silently
+ * cancelling another. See textures.js.
  *
- * Metal opts out and stays opaque: it is the one thing on the board the fluid
+ * Bone opts out and stays opaque: it is the one thing on the board the fluid
  * never dissolves, and that has to be legible before the player spends a rally
  * finding out.
  */
@@ -168,8 +169,6 @@ export const LASER = {
 
 export const SCORE = {
   brick: 50,
-  tough: 90,
-  explosive: 140,
   capsule: 120,
   levelClear: 1000,
   extraLifeEvery: 20000,
@@ -180,6 +179,50 @@ export const RUN = {
   maxLives: 6,
   /** Seconds a timed power-up lasts before expiring. */
   powerDuration: 22,
+
+  /** Continues offered from the Game Over screen, total for one playthrough. */
+  maxRevives: 3,
+  /** Seconds ReviveScene holds before offering the Skip button. */
+  reviveCountdown: 10,
+  /**
+   * Lives a Revive hands back — deliberately less than `startingLives`. A
+   * full refill made a continue strictly better than just being careful in
+   * the first place; one life keeps the stakes of the run it is resuming.
+   */
+  reviveLives: 1,
+};
+
+/**
+ * The level-wide clock in GameScene._updateLevelTimer, driving two dynamic
+ * mechanics defined in bricks.js: a repeating brick respawn and a one-shot
+ * difficulty buff. Both restart for free on a fresh GameScene (next level,
+ * Restart Level, Revive) since the clock is just a constructor field, never
+ * carried on the `run` object.
+ */
+export const LEVEL_TIMER = {
+  /** Seconds between brick-respawn ticks (30, 60, 90s, ...). */
+  spawnInterval: 30,
+  /** How many bricks a respawn tick fills in, chosen at random per tick. */
+  spawnMin: 2,
+  spawnMax: 3,
+  /** Seconds at which every breakable brick gains +1 HP, once per level. */
+  buffAt: 60,
+};
+
+/**
+ * The permanent "breathing" look a brick gets from the 60s buff — see
+ * Brick.applyBuff/tickPulse in bricks.js. Unlike the old flash this never
+ * reverts, so it stays tunable on its own rather than as a fading duration.
+ */
+export const BUFF_PULSE = {
+  /** Radians/second of the breathing cycle. */
+  speed: 4,
+  /** Lowest point of the alpha breath — never fully transparent. */
+  alphaMin: 0.72,
+  /** Permanent tint shift toward the game's own neon accent. */
+  tint: 0x35d0d8,
+  /** How strongly that colour is blended in, 0..1. */
+  tintMix: 0.55,
 };
 
 /** Fixed simulation guard: never integrate more than this in one frame. */
@@ -771,15 +814,13 @@ export const VFX = {
 
   /** Ball on paddle. */
   paddleImpact: { sparks: 9, flash: 0.55, speed: 260 },
-  /** Ball on unbreakable metal / boss cartilage. */
+  /** Ball on unbreakable bone / boss cartilage. */
   metalImpact: { sparks: 14, flash: 0.7, speed: 330 },
   /** Ball on wall. */
   wallImpact: { sparks: 4, flash: 0.28, speed: 190 },
 
   /** Brick destruction debris. */
   debris: { count: 9, speed: 210, life: 0.75, spin: 9 },
-  /** Explosive brick. */
-  blast: { count: 18, speed: 330, life: 0.9, spin: 14 },
 
   /**
    * Bloom is applied to the debris layer only, and that layer is hidden when

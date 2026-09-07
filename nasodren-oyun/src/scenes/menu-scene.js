@@ -5,6 +5,7 @@ import { TEX } from '../game/textures.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { LevelSelectScene } from './level-select-scene.js';
 import { GameScene } from './game-scene.js';
+import { TransitionScene } from './transition-scene.js';
 
 const CONTROL_LABELS = { both: 'MOUSE + KEYS', pointer: 'MOUSE / TOUCH', keys: 'KEYBOARD' };
 const CONTROL_ORDER = ['both', 'pointer', 'keys'];
@@ -91,7 +92,7 @@ export class MenuScene extends Scene {
         new Button('START GAME', () => {
           audio.unlock();
           audio.uiClick();
-          sm.change(GameScene, { levelIndex: 0 });
+          sm.change(TransitionScene, { next: GameScene, params: { levelIndex: 0 } });
         }),
       );
 

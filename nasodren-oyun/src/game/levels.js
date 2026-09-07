@@ -3,21 +3,23 @@
  *
  * Each row is a string of exactly GRID.cols characters. Legend:
  *   .      empty
- *   1..8   standard brick, palette index (1 hit)
- *   S      silver  - 2 hits
- *   G      gold    - 3 hits
- *   X      explosive - detonates its 3x3 neighbourhood
- *   M      metal   - indestructible, does not count toward clearing
- *   I      invisible - materialises on first contact, then behaves as standard
+ *   1..8   standard brick, palette index — tier-textured by current HP,
+ *          see textureKeyFor in textures.js
+ *   B      bone    - indestructible, does not count toward clearing
  *
  *   <      half-width cell, hugging the LEFT edge of its column
  *   >      half-width cell, hugging the RIGHT edge of its column
  *   o      small square, centred in its column
  *
+ * Silver, gold, explosive and invisible cells are gone — the HP-tier art
+ * (see the polish/cleanup pass) took over as the one damage readout the game
+ * needs, and bone is the only kind left with its own fixed look. Any layout
+ * that used to spell one of those out has been rewritten to a plain digit.
+ *
  * The three shape characters are standard one-hit cells in a smaller box. They
  * exist so a layout can be packed into a curved space, and so the result does
  * not read as a wall; every cell is additionally drawn nudged and tilted, see
- * BRICK.scatter. The special kinds — S, G, X, M, I — are full-cell only.
+ * BRICK.scatter. Bone is full-cell only.
  *
  * `music` selects one of the synthesised tracks in core/audio.js, mirroring the
  * way the original swapped tracks every few levels.
@@ -89,7 +91,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.....<.>.....',
+      '....B<.>B....',
       '...>.....<...',
       '....3...o....',
       '....o...o....',
@@ -102,7 +104,7 @@ export const LEVELS = [
       '4.4.4.4.4.4.4',
       '4.4.4.4.4.4.4',
       '5555555555555',
-      '.S.S.S.S.S.S.',
+      '.5.5.5.5.5.5.',
     ],
   },
   {
@@ -121,20 +123,20 @@ export const LEVELS = [
     name: 'Vault',
     music: 0,
     rows: [
-      'MMMMMMMMMMMMM',
+      'BBBBBBBBBBBBB',
       '6666666666666',
       '7.7.7.7.7.7.7',
-      'SSSSSSSSSSSSS',
-      '.X.........X.',
+      '8888888888888',
+      '.3.........3.',
     ],
   },
   {
     name: 'Ghosts',
     music: 1,
     rows: [
-      'IIIIIIIIIIIII',
+      '2222222222222',
       '3.3.3.3.3.3.3',
-      'IIIIIIIIIIIII',
+      '2222222222222',
       '4.4.4.4.4.4.4',
     ],
   },
@@ -145,19 +147,19 @@ export const LEVELS = [
       '1.2.3.4.5.6.7',
       '.2.3.4.5.6.7.',
       '3.4.5.6.7.8.1',
-      '.G.G.G.G.G.G.',
+      '.8.8.8.8.8.8.',
     ],
   },
   {
     name: 'Fortress',
     music: 1,
     rows: [
-      'MM.........MM',
-      'M.SSSSSSSSS.M',
-      'M.S.......S.M',
-      'M.S.XXXXX.S.M',
-      'M.SSSSSSSSS.M',
-      'MM.........MM',
+      'BB.........BB',
+      'B.666666666.B',
+      'B.6.......6.B',
+      'B.6.33333.6.B',
+      'B.666666666.B',
+      'BB.........BB',
     ],
   },
   {
@@ -169,54 +171,54 @@ export const LEVELS = [
       '6.6.6.6.6.6.6',
       '.5.5.5.5.5.5.',
       '4.4.4.4.4.4.4',
-      '.X.X.X.X.X.X.',
+      '.3.3.3.3.3.3.',
     ],
   },
   {
     name: 'Bunker',
     music: 2,
     rows: [
-      'SSSSSSSSSSSSS',
-      'S...........S',
-      'S.GGGGGGGGG.S',
-      'S.G.......G.S',
-      'S.G.MMMMM.G.S',
-      'S.GGGGGGGGG.S',
-      'SSSSSSSSSSSSS',
+      '5555555555555',
+      '5...........5',
+      '5.666666666.5',
+      '5.6.......6.5',
+      '5.6.BBBBB.6.5',
+      '5.666666666.5',
+      '5555555555555',
     ],
   },
   {
     name: 'Nova',
     music: 2,
     rows: [
-      '..I.......I..',
-      '.II.XXXXX.II.',
-      'IIIIIIIIIIIII',
-      '.II.XXXXX.II.',
-      '..I.......I..',
+      '..2.......2..',
+      '.22.33333.22.',
+      '2222222222222',
+      '.22.33333.22.',
+      '..2.......2..',
     ],
   },
   {
     name: 'Gauntlet',
     music: 2,
     rows: [
-      'MGMGMGMGMGMGM',
+      'B6B6B6B6B6B6B',
       '1234567812345',
-      'MGMGMGMGMGMGM',
+      'B6B6B6B6B6B6B',
       '5678123456781',
-      'SSSSSSSSSSSSS',
+      '7777777777777',
     ],
   },
   {
     name: 'Brickstorm',
     music: 2,
     rows: [
-      'XMXMXMXMXMXMX',
-      'GGGGGGGGGGGGG',
-      'SISISISISISIS',
-      'GGGGGGGGGGGGG',
-      'XMXMXMXMXMXMX',
-      '.G.G.G.G.G.G.',
+      '3B3B3B3B3B3B3',
+      '6666666666666',
+      '7272727272727',
+      '6666666666666',
+      '3B3B3B3B3B3B3',
+      '.6.6.6.6.6.6.',
     ],
   },
   {

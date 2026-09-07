@@ -352,8 +352,8 @@ export class SinusBackdrop extends Container {
    * The eased chase is the point of this method. Snapping a colour to the live
    * brick count would step that half of the drawing on every break, which reads
    * as a flicker; travelling toward it over SINUS.ease seconds reads as
-   * inflammation actually subsiding, and it means a Sneeze or an explosive
-   * chain cools a passage in one visible sweep.
+   * inflammation actually subsiding, and it means a Sneeze cools a passage in
+   * one visible sweep.
    */
   update(dt, leftProgress, rightProgress) {
     this._t += dt;

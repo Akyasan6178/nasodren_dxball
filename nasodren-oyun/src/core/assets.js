@@ -3,9 +3,13 @@ import { Assets } from 'pixi.js';
 /**
  * Asset manifest.
  *
- * Empty again. The game draws all of its art at runtime (see game/textures.js),
- * so it boots without waiting on anything and the build carries no binary
- * payload — which is where this started.
+ * Most of the game's art is still drawn at runtime (see game/textures.js), but
+ * `background` and `cyclamenBall` are real PNGs — Phase 1 of the visual reskin
+ * swaps the procedural sinus backdrop and the baked flower ball for hand-made
+ * artwork. Both sit in `preload`, not `game`: boot-scene.js blocks on
+ * `preload` and only then hands over to the menu, so by the time a scene
+ * constructs a background Sprite or a Ball, `textures.js#applyImageAssets()`
+ * has already had a chance to overwrite the matching TEX keys.
  *
  * THE FOUR FACE PNGs ARE STILL IN `public/assets/`, deliberately. They were
  * loaded here for the reactive face that used to sit in the middle of the
@@ -13,10 +17,6 @@ import { Assets } from 'pixi.js';
  * artwork stays on disk rather than being deleted and re-exported later. They
  * are simply no longer loaded — four PNGs is around 80KB of boot time to spend
  * on textures nothing draws.
- *
- * To bring them back, put them in `preload` rather than `game`: boot-scene.js
- * blocks on `preload` and only then hands over to the menu, whereas `game` is a
- * background load with no guarantee it has landed before a scene needs it.
  *
  *   { alias: 'face-sad', src: 'face-sad.png' }, ...and happy, surprised, sneeze
  *
@@ -28,7 +28,17 @@ export const manifest = {
   bundles: [
     {
       name: 'preload',
-      assets: [],
+      assets: [
+        { alias: 'background', src: 'background.png' },
+        { alias: 'cyclamenBall', src: 'cyclamen-ball.png' },
+        { alias: 'transitionAsset', src: 'ASSET.png' },
+        { alias: 'brickTier1', src: 'brick1.png' },
+        { alias: 'brickTier2', src: 'brick2.png' },
+        { alias: 'brickTier3', src: 'brick3.png' },
+        { alias: 'loadingHeart', src: 'loading2.png' },
+        { alias: 'loadingFlame', src: 'loading3.png' },
+        { alias: 'siklement', src: 'siklement.png' },
+      ],
     },
     {
       name: 'game',

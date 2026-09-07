@@ -11,9 +11,9 @@ import {
   FIELD,
   HUD_H,
   LASER,
+  LEVEL_TIMER,
   MAX_DT,
   PADDLE,
-  PETAL,
   PLASMA,
   PURGE,
   REBOUND,
@@ -22,14 +22,12 @@ import {
   TRIAL,
   RUN,
   SCORE,
-  MUCUS,
   VFX,
   WALL,
 } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
 import { TEX } from '../game/textures.js';
 import { BrickField } from '../game/bricks.js';
-import { SinusBackdrop, buildSinusGround } from '../game/sinus.js';
 import { SEPTUM_X } from '../game/cavity.js';
 import { Paddle } from '../game/paddle.js';
 import { Ball } from '../game/ball.js';
@@ -47,6 +45,7 @@ import { GlitchPacket } from '../game/projectile.js';
 import { CorruptionMeter } from '../game/corruption-meter.js';
 import { Hud } from '../game/hud.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
+import { TransitionScene } from './transition-scene.js';
 
 const MAX_BALLS = 8;
 
@@ -69,6 +68,11 @@ export class GameScene extends Scene {
       score: 0,
       lives: RUN.startingLives,
       nextExtraLife: SCORE.extraLifeEvery,
+      // Revive system state — see revive-scene.js. Threaded through every
+      // GameScene on this run exactly like score and lives already are, so it
+      // survives level transitions without any separate global.
+      revivesUsed: 0,
+      usedTips: [],
     };
 
     /**
@@ -163,6 +167,18 @@ export class GameScene extends Scene {
     this.timers = new Map();
     this._pending = [];
     this._offVisibility = null;
+
+    /**
+     * Level-wide clock for the dynamic mechanics in bricks.js: a repeating
+     * brick respawn every LEVEL_TIMER.spawnInterval seconds, and a one-shot
+     * difficulty buff at LEVEL_TIMER.buffAt. A plain constructor field, so
+     * Restart Level, Revive and advancing to the next level all reset it for
+     * free — every one of those builds a fresh GameScene rather than reusing
+     * this one.
+     */
+    this.levelTimer = 0;
+    this._spawnTick = 0;
+    this._buffed = false;
   }
 
   // --- setup ---------------------------------------------------------------
@@ -243,14 +259,24 @@ export class GameScene extends Scene {
   }
 
   _buildField() {
-    this.gameContainer.addChild(buildSinusGround());
+    // Phase 1 reskin: a static background.png Sprite stands in for the
+    // procedural sinus ground + glowing backdrop (see sinus.js, still intact
+    // but no longer wired in here). Stretched to the full design canvas so it
+    // always fills the scene regardless of the source image's own aspect
+    // ratio. `this.backdrop` stays null; `_updateBackdrop` no-ops on that.
+    this.backdrop = null;
 
-    // The nose sits above the flat ground and below everything that moves.
-    // The wall chrome is drawn *after* it, so the additive glow is painted over
-    // at the playfield edge rather than needing a mask — a mask here would cost
-    // a stencil push and pop on every single frame.
-    this.backdrop = new SinusBackdrop(this.reduceMotion, this.cavityLevel);
-    this.gameContainer.addChild(this.backdrop);
+    const background = new Sprite(TEX.background);
+    background.anchor.set(0);
+    background.position.set(0, 0);
+    background.width = DESIGN.width;
+    background.height = DESIGN.height;
+    // The source art reads far brighter than the play layer sitting on top
+    // of it — bricks and the ball were getting lost against it. A flat
+    // multiply tint is the cheapest fix: darkens the whole image with zero
+    // extra draw call, no separate overlay Sprite to keep in sync.
+    background.tint = 0x666666;
+    this.gameContainer.addChild(background);
 
     const g = new Graphics();
 
@@ -783,6 +809,7 @@ export class GameScene extends Scene {
 
     this._tickPending(dt);
     this._updateTimers(dt);
+    this._updateLevelTimer(dt);
 
     this.paddle.update(dt, input, this.ctx.save.settings, this.zapped);
 
@@ -819,11 +846,11 @@ export class GameScene extends Scene {
    * Count the live breakable bricks either side of the septum.
    *
    * Walked off `brickField.grid` rather than decremented as bricks die. There
-   * are four paths that destroy a brick — the ball, a laser, an explosive
-   * chain, the Purge — and a counter threaded through all four is a counter
-   * that will eventually be wrong on one of them, at which point a cavity
-   * either never cools or cools early and nobody can tell why. Recounting has
-   * no such failure mode.
+   * are several paths that destroy a brick — the ball, a laser, the Purge —
+   * and a counter threaded through all of them is a counter that will
+   * eventually be wrong on one of them, at which point a cavity either never
+   * cools or cools early and nobody can tell why. Recounting has no such
+   * failure mode.
    *
    * It is also cheaper than it looks. `_updateBackdrop` only calls this when
    * `brickField.remaining` has actually changed, so it runs a handful of times
@@ -882,6 +909,11 @@ export class GameScene extends Scene {
    * question; sinus.js owns the answer.
    */
   _updateBackdrop(dt) {
+    // Deactivated for Phase 1 — see _buildField(). Left in place rather than
+    // deleted so the eased-clearance readout can be rewired onto the new
+    // artwork later.
+    if (!this.backdrop) return;
+
     if (this._lastRemaining !== this.brickField.remaining) {
       this._lastRemaining = this.brickField.remaining;
       this.remainingBricks = this._countBricksBySide();
@@ -896,6 +928,39 @@ export class GameScene extends Scene {
       total[key] > 0 ? this.remainingBricks[key] / total[key] : overall;
 
     this.backdrop.update(dt, 1 - ratio('left'), 1 - ratio('right'));
+  }
+
+  /**
+   * Two dynamic mechanics on one clock, both defined on `brickField` (see
+   * bricks.js) so this method stays a scheduler rather than a second copy of
+   * their rules: a brick respawn every `LEVEL_TIMER.spawnInterval` seconds,
+   * and a once-per-level HP buff at `LEVEL_TIMER.buffAt`.
+   *
+   * Never called while paused — `update()` returns before reaching this line
+   * whenever `this.paused` is true — and reset for free on every fresh
+   * GameScene, so Restart Level, Revive and the next level all start clean.
+   */
+  _updateLevelTimer(dt) {
+    // Once the level is won there is nothing left for either mechanic to act
+    // on — and a brick popping in during the "LEVEL CLEAR" transition would
+    // read as a bug, not a feature.
+    if (this.state === 'clear') return;
+
+    this.levelTimer += dt;
+    this.brickField.tickBuffs(dt);
+
+    const tick = Math.floor(this.levelTimer / LEVEL_TIMER.spawnInterval);
+    if (tick > this._spawnTick) {
+      this._spawnTick = tick;
+      const span = LEVEL_TIMER.spawnMax - LEVEL_TIMER.spawnMin + 1;
+      const count = LEVEL_TIMER.spawnMin + Math.floor(Math.random() * span);
+      this.brickField.spawnBricks(count);
+    }
+
+    if (!this._buffed && this.levelTimer >= LEVEL_TIMER.buffAt) {
+      this._buffed = true;
+      this.brickField.buffAllBricks();
+    }
   }
 
   /**
@@ -1220,7 +1285,7 @@ export class GameScene extends Scene {
     if (result.blocked) {
       audio.metalPing();
 
-      // Metal gives nothing back but sparks — the loudest visual in the game
+      // Bone gives nothing back but sparks — the loudest visual in the game
       // for the least productive hit.
       const nx = x - brick.centerX;
       const ny = y - brick.centerY;
@@ -1234,18 +1299,6 @@ export class GameScene extends Scene {
       return;
     }
 
-    if (result.revealed && !result.destroyed.length) {
-      audio.brickHit(brick.row);
-      this.particles.burst(brick.centerX, brick.centerY, {
-        count: 8,
-        color: brick.color,
-        speed: 70,
-        life: 0.3,
-        size: 0.7,
-      });
-      return;
-    }
-
     if (result.damaged) {
       audio.brickHit(brick.row);
       // Tinted with the fluid palette rather than white: a partial hit is the
@@ -1256,50 +1309,30 @@ export class GameScene extends Scene {
 
     if (!result.destroyed.length) return;
 
-    let explosive = false;
     let drops = 0;
 
     for (const info of result.destroyed) {
       this.addScore(info.points);
 
-      if (info.kind === 'explosive') {
-        explosive = true;
-        // The blast keeps its shards — an explosive brick is a rupture, and the
-        // droplets that follow are what the rupture released.
-        this.particles.debris(info.x, info.y, {
-          color: 0xffd23f,
-          count: VFX.blast.count,
-          speed: VFX.blast.speed,
-          life: VFX.blast.life,
-          spin: VFX.blast.spin,
-          size: 1.3,
-        });
-        this.particles.droplets(info.x, info.y, { count: MUCUS.count + 5, speed: MUCUS.speed * 1.5, size: 1.2 });
-        // A rupture throws the cyclamen wider and harder than a clean break.
-        this.particles.petals(info.x, info.y, { count: PETAL.count + 5, speed: PETAL.speed * 1.7 });
-        this.particles.flash(info.x, info.y, { color: 0xfff0c2, size: 1.4, life: 0.24 });
-      } else {
-        // Two substances leaving one break: the fluid the cavity is losing, and
-        // the cyclamen that shifted it. They are emitted together and then
-        // separate on their own, because PETAL and MUCUS disagree about gravity,
-        // drag and life by roughly an order of magnitude each — the droplets are
-        // gone before the petals have finished falling.
-        this.particles.droplets(info.x, info.y);
-        this.particles.petals(info.x, info.y);
-        // The flash stays on the brick's own colour: it is the moment of the
-        // break, before the fluid it was holding has gone anywhere.
-        this.particles.flash(info.x, info.y, { color: info.color, size: 0.5 });
-      }
+      // Two substances leaving one break: the fluid the cavity is losing, and
+      // the cyclamen that shifted it. They are emitted together and then
+      // separate on their own, because PETAL and MUCUS disagree about gravity,
+      // drag and life by roughly an order of magnitude each — the droplets are
+      // gone before the petals have finished falling.
+      this.particles.droplets(info.x, info.y);
+      this.particles.petals(info.x, info.y);
+      // The flash stays on the brick's own colour: it is the moment of the
+      // break, before the fluid it was holding has gone anywhere.
+      this.particles.flash(info.x, info.y, { color: info.color, size: 0.5 });
 
-      // Cap drops so a big chain doesn't bury the player in capsules.
+      // Cap drops so a big cascade doesn't bury the player in capsules.
       if (drops < 2 && Math.random() < CAPSULE.dropChance) {
         drops++;
         this._spawnCapsule(info.x, info.y);
       }
     }
 
-    if (explosive) audio.explosion();
-    else audio.brickBreak(brick.row);
+    audio.brickBreak(brick.row);
   }
 
   // --- capsules ------------------------------------------------------------
@@ -1524,7 +1557,7 @@ export class GameScene extends Scene {
       this.ctx.save.unlock(next + 1);
 
       if (next >= LEVELS.length) this._finish(true);
-      else this.ctx.sm.change(GameScene, { levelIndex: next, run: this.run });
+      else this.ctx.sm.change(TransitionScene, { next: GameScene, params: { levelIndex: next, run: this.run } });
     });
   }
 
@@ -1535,6 +1568,11 @@ export class GameScene extends Scene {
       won,
       score: this.run.score,
       level: this.levelIndex + 1,
+      // Only meaningful on a loss — see ResultsScene's Revive button — but
+      // passed either way rather than made conditional, so this stays the
+      // one place that assembles a ResultsScene handoff.
+      levelIndex: this.levelIndex,
+      run: this.run,
     });
   }
 
@@ -1573,8 +1611,8 @@ export class GameScene extends Scene {
    * `brickField.remaining` is left exactly as it was for the clear check.
    *
    * Safe to call from inside a collision substep: it mutates `hits`, `alpha`
-   * and the crack sprite, and touches neither the grid array nor `removed`, so
-   * the generator `_collideBricks` is iterating stays valid.
+   * and the tier texture, and touches neither the grid array nor `removed`,
+   * so the generator `_collideBricks` is iterating stays valid.
    */
   _triggerSneeze() {
     this.rallyBreaks = 0;
@@ -1583,9 +1621,8 @@ export class GameScene extends Scene {
     this.ctx.audio.explosion();
 
     for (const brick of this.brickField.all()) {
-      // Metal is not mucus, and an invisible brick stays hidden — revealing the
-      // wall's secrets is a level-design decision, not a side effect of a combo.
-      if (!brick.breakable || brick.hidden) continue;
+      // Bone is not mucus — nothing to loosen.
+      if (!brick.breakable) continue;
 
       if (brick.hits > SNEEZE.loosen) {
         brick.hits -= SNEEZE.loosen;
@@ -1714,9 +1751,18 @@ export class GameScene extends Scene {
     menu.add(
       new Button('RESTART LEVEL', () => {
         audio.setMuted(false);
-        this.ctx.sm.change(GameScene, {
-          levelIndex: this.levelIndex,
-          run: { score: 0, lives: RUN.startingLives, nextExtraLife: SCORE.extraLifeEvery },
+        this.ctx.sm.change(TransitionScene, {
+          next: GameScene,
+          params: {
+            levelIndex: this.levelIndex,
+            run: {
+              score: 0,
+              lives: RUN.startingLives,
+              nextExtraLife: SCORE.extraLifeEvery,
+              revivesUsed: 0,
+              usedTips: [],
+            },
+          },
         });
       }, { width: 240 }),
     );
