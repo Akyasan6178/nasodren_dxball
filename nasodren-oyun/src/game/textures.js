@@ -420,6 +420,7 @@ export function applyImageAssets() {
   if (siklement) TEX.siklement = siklement;
 }
 
+
 /** Atlas key for a standard cell. `full` keeps the original bare key. */
 export const brickKey = (colorIndex, shape) =>
   shape === 'full' ? `brick${colorIndex}` : `brick${colorIndex}_${shape}`;
@@ -436,17 +437,33 @@ function tierKeyFor(hits) {
  * standard and bone, see bricks.js's CHAR_MAP — so this is a short rule
  * rather than the wider dispatch it used to be.
  *
- * ONLY A FULL-CELL STANDARD BRICK GOES THROUGH THE HP TIER. A half/small
- * shape variant exists to be packed into a curved space and is always one
- * hit, so it stays on the palette-coloured baked textures instead, which are
- * the only ones cut to those smaller boxes. A full-cell standard brick
- * resolves by its CURRENT `hits` every time `refreshDamage`/`applyBuff` calls
- * in, which is exactly the information the tier art is there to carry. Bone
- * keeps its own fixed texture regardless of hits, because it is never meant
- * to look like it is running low — it never is.
+ * EVERY STANDARD CELL RESOLVES BY HP, WHATEVER SHAPE IT IS. It used to be only
+ * full cells: half and small variants stayed on the palette-coloured bakes,
+ * because those were the only textures actually cut to the smaller boxes. That
+ * split stopped being tenable the moment the layouts were rebuilt inside the
+ * sinus tracts. The antrum is one column wide at the roof and four at the
+ * floor, so most of the board is now half and small cells — and a level was
+ * ending up half hand-drawn Graphics and half photographic brick art, side by
+ * side in the same clump. One material, or the level does not read as one
+ * surface.
+ *
+ * Squashing a 93x45 source into a 23x18 half cell does distort it, and that is
+ * the price. `Brick` reapplies `width`/`height` on every tier swap, so the fit
+ * is handled; what it cannot do is preserve the aspect. Cropping a frame out of
+ * the source instead would keep it, at the cost of slicing through the art's
+ * own rounded edges — worth revisiting if the squash reads badly at speed.
+ *
+ * A standard cell resolves by its CURRENT `hits` every time
+ * `refreshDamage`/`applyBuff` calls in, which is exactly the information the
+ * tier art carries. Bone keeps its own fixed texture regardless of hits,
+ * because it is never meant to look like it is running low — it never is.
+ *
+ * The palette-coloured shape bakes are still built in `buildTextures()` and are
+ * now unreferenced by this function. They are deliberately not deleted: they
+ * are the only art cut to the true half/small boxes, so they are what a crop-
+ * based fix would be measured against.
  */
 export function textureKeyFor(kind, colorIndex, shape = 'full', hits = 1) {
   if (kind === 'bone') return 'brickBone';
-  if (shape === 'full') return tierKeyFor(hits);
-  return brickKey(colorIndex, shape);
+  return tierKeyFor(hits);
 }

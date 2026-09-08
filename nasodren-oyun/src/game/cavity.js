@@ -1,135 +1,53 @@
-import { CAVITY, DESIGN, SINUS } from './config.js';
-import { SINUS_RIGHT, SEPTUM, mirrorPath } from './anatomy.js';
+import { BRICK, CAVITY, DESIGN, SINUS } from './config.js';
+import {
+  FRONTAL_RIGHT,
+  MAXILLARY_RIGHT,
+  ETHMOID_UPPER_RIGHT,
+  ETHMOID_LOWER_RIGHT,
+  SEPTUM,
+  mirrorPolygon,
+} from './anatomy.js';
 
 /**
- * The sinus section: authored paths in, strokes and regions out.
+ * The sinus section: traced rings in, regions and distances out.
  *
- * Coordinates live in anatomy.js, written there as real curve commands. This
- * file does two things with them and nothing else: mirrors the authored right
- * half to make the left, and flattens both to polylines — then publishes the
- * questions the rest of the game asks of the drawing. There is no spline here
- * any more; the three-zone blueprint is authored as curves because a spline
- * cannot hold a straight wall, a pinched waist and a bumpy wall at once. See
- * the note at the top of anatomy.js.
+ * Coordinates live in anatomy.js, recovered from background.png by
+ * scripts/trace-sinus.mjs. This file mirrors the authored right half to make
+ * the left and publishes the questions the rest of the game asks of the
+ * drawing. Everything is in DESIGN space (640x480), like the rest of the
+ * gameplay maths.
+ *
+ * THERE IS NO CURVE FLATTENING HERE ANY MORE. This file used to carry a
+ * Bezier evaluator, because anatomy.js held hand-authored 'M'/'L'/'Q'/'C'
+ * commands for a wireframe that sinus.js stroked on screen. Nothing strokes it
+ * now — the section the player sees is the painting — so the geometry is
+ * traced from that painting and arrives as rings of points. Flattening a
+ * polyline is a no-op, and keeping the evaluator around to perform it would
+ * only invite someone to author a curve that the painting does not have.
  *
  * IT IS SCENERY. Nothing here touches the ball. The playfield is the plain
  * rectangle it always was — `GameScene._collideWalls` owns FIELD.left,
  * FIELD.right and FIELD.top, and nothing else turns a ball around. An earlier
  * pass made every stroke a solid capsule the ball rebounded off; it was
  * reverted because curved bumpers scatter a shot unpredictably, and a breakout
- * board the player cannot aim in is not a breakout board. So `radius` below is
- * a line width, not a collision reach.
+ * board the player cannot aim in is not a breakout board.
  *
  * WHAT THE COORDINATES STILL DECIDE:
  *
- *   `NOSE_STROKES` — every line in the drawing, with the width to stroke it at
+ *   `NOSE_STROKES` — every ring in the drawing, with the width to stroke it at
  *   and which side it belongs to. `sinus.js` reads nothing else.
  *
- *   `BRICK_TRACTS` — the two cavity interiors, and the only regions
- *   congestion may occupy. Enforced at level-validation time by
- *   `rectInsideTract`: mucus belongs in the sinuses it is blocking, and a clump
- *   floating in the nasal cavity or out in the open board is what would look
- *   broken.
+ *   `BRICK_TRACTS` — the four chambers, and the only regions congestion may
+ *   occupy. Enforced at level-validation time by `rectInsideTract`: mucus
+ *   belongs in the sinuses it is blocking, and a clump floating in the nasal
+ *   cavity or out in the open board is what would look broken.
  *
  *   `GLOW_REGIONS` and `GLOW_FOCI` — what the inflammation gradient is filled
- *   into, per side, and the point in each one it is brightest at.
- *   Currently the same two polygons as the tracts, kept separate because the
- *   two answer different questions and have already diverged once.
- *
- * Everything is in DESIGN space (640x480), like the rest of the gameplay maths.
+ *   into, per side, and the point in each one it is brightest at. Wider than
+ *   the tracts: it lights the ethmoid cells too, which hold no bricks.
  */
 
 const CX = DESIGN.width / 2;
-
-/**
- * Flatten a path to a polyline.
- *
- * Segment count comes from the control-polygon length rather than a fixed
- * subdivision, so a long lazy curve and a short tight one both end up with
- * roughly `tolerance`-pixel segments.
- *
- * STRAIGHT RUNS ARE SUBDIVIDED TOO, which looks like waste and is not. The
- * containment tests below are happy with a 240px chord — a segment is a segment
- * to a point-in-polygon test — but the glow is not: sinus.js derives each
- * cavity's hot spot from the CENTROID OF THESE POINTS, and the medial wall is
- * now one straight line down a shape whose every other edge is a curve. Emitted
- * as two points it contributes two samples against the lateral wall's sixty,
- * and the focus it drags outward is the focus the whole inflammation gradient
- * is built around. Uniform density is what keeps the centroid a centroid.
- */
-function flattenPath(cmds, tolerance) {
-  const pts = [];
-  let cx = 0;
-  let cy = 0;
-
-  for (const c of cmds) {
-    if (c[0] === 'M') {
-      cx = c[1];
-      cy = c[2];
-      pts.push([cx, cy]);
-      continue;
-    }
-
-    if (c[0] === 'L') {
-      const [, ex, ey] = c;
-      const steps = Math.max(1, Math.ceil(Math.hypot(ex - cx, ey - cy) / tolerance));
-
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        pts.push([cx + (ex - cx) * t, cy + (ey - cy) * t]);
-      }
-
-      cx = ex;
-      cy = ey;
-      continue;
-    }
-
-    if (c[0] === 'Q') {
-      const [, qx, qy, ex, ey] = c;
-      const approx = Math.hypot(qx - cx, qy - cy) + Math.hypot(ex - qx, ey - qy);
-      const steps = Math.max(2, Math.ceil(approx / tolerance));
-
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const u = 1 - t;
-        pts.push([
-          u * u * cx + 2 * u * t * qx + t * t * ex,
-          u * u * cy + 2 * u * t * qy + t * t * ey,
-        ]);
-      }
-
-      cx = ex;
-      cy = ey;
-      continue;
-    }
-
-    const [, c1x, c1y, c2x, c2y, ex, ey] = c;
-    const approx =
-      Math.hypot(c1x - cx, c1y - cy) +
-      Math.hypot(c2x - c1x, c2y - c1y) +
-      Math.hypot(ex - c2x, ey - c2y);
-    const steps = Math.max(2, Math.ceil(approx / tolerance));
-
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      const u = 1 - t;
-      pts.push([
-        u * u * u * cx + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex,
-        u * u * u * cy + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey,
-      ]);
-    }
-
-    cx = ex;
-    cy = ey;
-  }
-
-  return pts;
-}
-
-
-/* ------------------------------------------------------- assembly ------- */
-
-const F = CAVITY.flatten;
 
 /**
  * Build one stroke entry.
@@ -139,38 +57,54 @@ const F = CAVITY.flatten;
  * from a table keyed by id — with a table, adding a structure and forgetting
  * its entry means a structure that is silently never drawn.
  *
- * `closed` says the authored path is a loop whose last point must land back on
- * its first. Nothing here enforces it — a gap in a closed outline is invisible
- * to every consumer, which is exactly why it is declared rather than derived:
- * `inPolygon` closes the ring implicitly and gives the right answer regardless,
- * so a broken loop shows up only as a hole in the neon that no test is looking
- * for. `check:nose` reads this flag and looks for it.
+ * `radius` AND `lineRadius` ARE DELIBERATELY DIFFERENT NUMBERS, and the split
+ * is the whole reason this function is not a literal. `radius` is the reach the
+ * brick-containment margin is measured from, and it is ZERO for every chamber:
+ * these rings are traced from the INNER edge of the painted wall — the air side
+ * of it — so the distance from a brick to the ring already IS the distance to
+ * the wall, and adding a stroke width on top would charge the margin twice and
+ * cost cells the painting has room for. `lineRadius` is half the width to draw
+ * the ring at if anything draws it, which nothing currently does; it is what
+ * `radius` used to be, and keeping the two apart is what stops re-enabling
+ * sinus.js from silently moving every brick.
  */
-const stroke = (id, path, radius, side, closed = true) => ({
+const stroke = (id, points, radius, side, closed = true) => ({
   id,
-  path,
-  points: flattenPath(path, F),
+  points,
   radius,
+  lineRadius: radius || CAVITY.wallRadius,
   side,
   closed,
 });
 
-const SINUS_LEFT = mirrorPath(SINUS_RIGHT);
+const FRONTAL_LEFT = mirrorPolygon(FRONTAL_RIGHT);
+const MAXILLARY_LEFT = mirrorPolygon(MAXILLARY_RIGHT);
+const ETHMOID_UPPER_LEFT = mirrorPolygon(ETHMOID_UPPER_RIGHT);
+const ETHMOID_LOWER_LEFT = mirrorPolygon(ETHMOID_LOWER_RIGHT);
 
 /**
- * Every line in the drawing. Three of them.
+ * Every ring in the drawing: four chambers, four ethmoid cells, one septum.
  *
- * Two continuous cavity outlines and the septum between them. Each outline runs
- * all three zones — frontal, ethmoid, maxillary — as one closed path, so a side
- * is one Graphics tinted by one clearance value and the neon reads as one tube
- * from the brow to the floor.
+ * NINE, WHERE THERE USED TO BE THREE. The old geometry ran each side as a
+ * single outline from the brow to the alveolar floor, on the theory that one
+ * unbroken tube reads as lit glass where stacked loops read as diagram
+ * callouts. That was a good argument about a drawing this code no longer makes.
+ * The painting has discrete closed chambers with open turbinate scrolls
+ * between them, and the geometry's only remaining job is to answer questions
+ * about the painting truthfully.
  *
- * Order is paint order: the two cavities first, the septum last so the hairline
- * on the midline stays the crispest thing in the section.
+ * Order is paint order: cavities first, the septum last so the hairline on the
+ * midline stays the crispest thing in the section.
  */
 export const NOSE_STROKES = [
-  stroke('sinus-l', SINUS_LEFT, CAVITY.wallRadius, 0),
-  stroke('sinus-r', SINUS_RIGHT, CAVITY.wallRadius, 1),
+  stroke('frontal-l', FRONTAL_LEFT, 0, 0),
+  stroke('frontal-r', FRONTAL_RIGHT, 0, 1),
+  stroke('maxillary-l', MAXILLARY_LEFT, 0, 0),
+  stroke('maxillary-r', MAXILLARY_RIGHT, 0, 1),
+  stroke('ethmoid-upper-l', ETHMOID_UPPER_LEFT, 0, 0),
+  stroke('ethmoid-upper-r', ETHMOID_UPPER_RIGHT, 0, 1),
+  stroke('ethmoid-lower-l', ETHMOID_LOWER_LEFT, 0, 0),
+  stroke('ethmoid-lower-r', ETHMOID_LOWER_RIGHT, 0, 1),
   stroke('septum', SEPTUM, CAVITY.septumRadius, null, false),
 ];
 
@@ -188,37 +122,42 @@ export const SEPTUM_X = CX;
 const byId = (id) => NOSE_STROKES.find((s) => s.id === id).points;
 
 /**
- * The two cavity interiors: the only regions congestion may occupy.
+ * The four chambers: the only regions congestion may occupy.
  *
- * Index 0 is the left side and 1 the right, matching the order every per-side
- * array in this codebase uses.
+ * Left entries first to match the order every per-side array in this codebase
+ * uses.
  *
- * THE WHOLE PASSAGE, ALL THREE ZONES, and that is a containment rule rather
- * than a placement one. A brick is legal anywhere inside this outline, which in
- * principle includes the ethmoid channel and the frontal cavity — but the
- * channel is only ~35px of clear width, so nothing but a small clump fits there
- * once BRICK.scatter's margin is taken off, and the frontal roof clears the top
- * of the brick grid entirely. The geometry does the filtering; run
- * `npm run check:nose` for the map of what each shape may actually occupy.
+ * THE ETHMOID CELLS ARE DELIBERATELY NOT HERE, and it is worth writing down
+ * why so nobody adds them back as an oversight. They are genuine air spaces
+ * and the glow lights them, but the larger of the four measures 28x14px of
+ * clear interior and the smallest cell the game can draw is 18.4x17.1px before
+ * its own 7.6px margin. Nothing fits. Listing them as tracts would not gain a
+ * single legal position; it would only mean `insideTract` returning true for
+ * points no layout can ever use.
  *
- * NOT THE NASAL CAVITY between the two. It is 32px of dark with a hairline down
- * it, it is the lane the ball travels up, and mucus drawn there would bury the
- * septum that gives the section its scale.
+ * NOT THE NASAL CAVITY between the two sides either. It is the lane the ball
+ * travels up, and mucus drawn there would bury the septum that gives the
+ * section its scale.
  */
-export const BRICK_TRACTS = [byId('sinus-l'), byId('sinus-r')];
+export const BRICK_TRACTS = [
+  byId('frontal-l'),
+  byId('maxillary-l'),
+  byId('frontal-r'),
+  byId('maxillary-r'),
+];
 
 /**
  * What the inflammation gradient is filled into, per side.
  *
- * Still a list per side rather than a single polygon, even though each side is
- * currently one shape. That list is what let a side hold two air spaces at once
- * before the drawing was simplified; keeping it costs one array literal, and
- * collapsing it to a bare polygon would have to be undone by whoever splits the
- * frontal sinus back out into its own loop. sinus.js gives every polygon in the
- * list its own focus, which is a correctness requirement rather than a nicety —
- * see the note there.
+ * Four polygons a side rather than one, which is what the per-side list was
+ * always shaped for: `sinus.js` gives every polygon in the list its own focus,
+ * which is a correctness requirement rather than a nicety — see the note on
+ * GLOW_FOCI below.
  */
-export const GLOW_REGIONS = [[byId('sinus-l')], [byId('sinus-r')]];
+export const GLOW_REGIONS = [
+  [byId('frontal-l'), byId('maxillary-l'), byId('ethmoid-upper-l'), byId('ethmoid-lower-l')],
+  [byId('frontal-r'), byId('maxillary-r'), byId('ethmoid-upper-r'), byId('ethmoid-lower-r')],
+];
 
 /**
  * Where the inflammation gradient is brightest, per polygon of GLOW_REGIONS.
@@ -232,12 +171,10 @@ export const GLOW_REGIONS = [[byId('sinus-l')], [byId('sinus-r')]];
  *
  * AREA-WEIGHTED, which is the part that broke. Averaging the outline points
  * weights an edge by how many samples it happens to carry, so a long thin
- * passage counts for as much as the wide chamber it opens into; on this
- * three-zone section that put the focus in the ethmoid channel — the ~35px
- * pinch between the frontal cavity and the wing — and a few pixels outside the
- * medial wall once the medial bias had pulled on it. The shoelace centroid
- * weights by area, so the maxillary flare wins by the margin its size deserves
- * and the light pools in the belly of the passage, over the bricks.
+ * passage counts for as much as the wide chamber it opens into. The shoelace
+ * centroid weights by area instead, so on the maxillary wing the light pools
+ * in the belly of the chamber, over the bricks, rather than up in its narrow
+ * mouth.
  *
  * The bias then pulls it toward the midline, because that is where a sinus
  * drains from and where mucosal thickening starts. Purely a look — but it is
@@ -283,10 +220,10 @@ function inPolygon(x, y, poly) {
 }
 
 /**
- * Is this point inside a maxillary sinus — the region congestion may occupy?
+ * Is this point inside a chamber — the region congestion may occupy?
  *
- * Tested against the flattened outline the renderer strokes, so "inside a
- * tract" means inside the shape the player can actually see rather than a
+ * Tested against the same rings the painting was traced from, so "inside a
+ * tract" means inside the air space the player can actually see rather than a
  * second approximation of it.
  */
 export function insideTract(x, y) {
@@ -297,8 +234,8 @@ export function insideTract(x, y) {
  * Is this point inside any air space the inflammation gradient is filled into?
  *
  * Wider than `insideTract`, and the two are not interchangeable. This one
- * answers "would the glow cover this", which is the question the face's hollow
- * has to come back `false` for; the other answers "may a brick go here".
+ * answers "would the glow cover this", which includes the ethmoid cells; the
+ * other answers "may a brick go here", which does not.
  */
 export function insideGlow(x, y) {
   for (const side of GLOW_REGIONS) {
@@ -313,9 +250,17 @@ export function strokeDistance(x, y) {
   let best = Infinity;
 
   for (const s of NOSE_STROKES) {
-    for (let i = 0; i < s.points.length - 1; i++) {
+    // Closed rings need the edge from the last point back to the first, which
+    // is not in the point list. Walking `i` to `length - 1` and pairing with
+    // `i + 1` silently skips it, and on a traced ring that edge can be the
+    // long one — the trace starts at the topmost-leftmost pixel, so the seam
+    // sits in the middle of a wall rather than at a corner.
+    const n = s.points.length;
+    const last = s.closed ? n : n - 1;
+
+    for (let i = 0; i < last; i++) {
       const [ax, ay] = s.points[i];
-      const [bx, by] = s.points[i + 1];
+      const [bx, by] = s.points[(i + 1) % n];
 
       const ex = bx - ax;
       const ey = by - ay;
@@ -333,32 +278,32 @@ export function strokeDistance(x, y) {
 }
 
 /**
- * Does this rectangle sit wholly inside a tract, clear of the wireframe?
+ * Does this rectangle sit wholly inside a chamber, clear of the wall?
  *
- * THE LEVEL-DESIGN GUARD, AND IT IS THE INVERSE OF THE ONE THAT USED TO LIVE
- * HERE. While the nose was solid the question was "does this brick overlap a
- * stroke", because a brick fused into a wall fought its collision. The nose is
- * scenery now and nothing here touches the ball, so overlapping a stroke is
- * merely ugly — the real requirement flipped: congestion has to sit *inside*
- * the passages it is supposed to be blocking. A brick floating in the open
- * board beside the sinus is the thing that would look broken.
+ * THE LEVEL-DESIGN GUARD. Congestion has to sit inside the passages it is
+ * supposed to be blocking; a brick floating in the open board beside the sinus
+ * is the thing that would look broken.
  *
- * `margin` is how far clear of the strokes the box must stay. Callers pass the
- * scatter amount, because a brick is drawn up to BRICK.scatter pixels off its
- * grid cell and a layout that only just fits will spill onto the wireframe once
- * the mess is applied.
+ * `margin` is how far clear of the wall the box must stay. Use `tractMargin()`
+ * to compute it rather than passing a bare number: a cell is drawn nudged AND
+ * tilted, and a caller that accounted only for the nudge was signing off on
+ * cells that overlapped the wall.
  *
- * Sampled on a 5x5 lattice rather than tested analytically. The cost is
- * irrelevant — this runs at level-validation time, never per frame — and a
- * lattice is right for a concave polygon in a way that a corners-only test is
- * not: a cell can have all four corners inside a tract and still bulge across
- * the septum between them.
+ * SAMPLED ON A LATTICE SIZED TO THE BOX, not a fixed 5x5. The cost is
+ * irrelevant — this runs at level-validation time, never per frame — and the
+ * old fixed grid put its samples 11.5px apart across a full-width cell, wide
+ * enough for a pinch in a chamber to pass clean between two of them. A lattice
+ * is right for a concave polygon in a way that a corners-only test is not: a
+ * cell can have all four corners inside a chamber and still bulge out through
+ * the wall between them.
  */
 export function rectInsideTract(x0, y0, x1, y1, margin = 0) {
-  for (let i = 0; i <= 4; i++) {
-    for (let j = 0; j <= 4; j++) {
-      const x = x0 + ((x1 - x0) * i) / 4;
-      const y = y0 + ((y1 - y0) * j) / 4;
+  const steps = Math.max(4, Math.ceil(Math.max(x1 - x0, y1 - y0) / 3));
+
+  for (let i = 0; i <= steps; i++) {
+    for (let j = 0; j <= steps; j++) {
+      const x = x0 + ((x1 - x0) * i) / steps;
+      const y = y0 + ((y1 - y0) * j) / steps;
 
       if (!insideTract(x, y)) return false;
       if (strokeDistance(x, y) < margin) return false;
@@ -366,4 +311,19 @@ export function rectInsideTract(x0, y0, x1, y1, margin = 0) {
   }
 
   return true;
+}
+
+/**
+ * The margin a cell of this drawn size must clear the wall by.
+ *
+ * Three terms, and the middle one is the one that was missing. `scatter` is the
+ * translation a cell is nudged by. The tilt term is what a CORNER does on top
+ * of that: the cell rotates about its own centre by up to BRICK.tilt, so the
+ * point furthest from the centre — half the diagonal away — swings out by that
+ * radius times sin(tilt). On a full 46x18 cell that is another 1.2px, which is
+ * exactly the amount by which level 1's roof caps were once overlapping the
+ * wall while passing validation. `clearance` is then the deliberate visible gap.
+ */
+export function tractMargin(w, h) {
+  return BRICK.scatter + (Math.hypot(w, h) / 2) * Math.sin(BRICK.tilt) + BRICK.clearance;
 }

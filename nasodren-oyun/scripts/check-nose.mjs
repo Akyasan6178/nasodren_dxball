@@ -21,7 +21,10 @@ import {
   GLOW_REGIONS,
   GLOW_FOCI,
   rectInsideTract,
+  strokeDistance,
+  tractMargin,
   insideGlow,
+  insideTract,
 } from '../src/game/cavity.js';
 
 const problems = [];
@@ -60,25 +63,91 @@ for (const [i, level] of LEVELS.entries()) {
   check(left === right, `level ${i + 1} "${level.name}" starts balanced (${left} left, ${right} right)`);
 }
 
-/* --- 4. every closed outline must actually close ------------------------ */
+/* --- 3. no cell may be drawn touching the wireframe --------------------- */
 //
-// THE ONE DEFECT IN THIS DRAWING THAT NOTHING ELSE CAN SEE. anatomy.js is hand-
-// authored curve commands now, and a loop whose closing run stops short of the
-// point it opened on is invisible to every consumer: the crossing test closes
-// the ring implicitly and keeps answering correctly, the glow fills the shape it
-// meant to, and the only symptom is a length of missing neon on screen. It has
-// already happened once, when the frontal roof was moved and the medial wall
+// validateLevels already refuses a layout that fails this, so a green run here
+// is not news. The number is: it says how much room the tightest cell in the
+// whole game actually has, which is the thing you want to see BEFORE nudging a
+// coordinate in anatomy.js. It is measured the way the cell is drawn — the
+// authored box, minus the worst-case scatter, minus what a corner does under
+// tilt — so it is the real gap on screen, not the gap on the grid.
+//
+// It has been negative in shipped code. Two bone caps in level 1 sat at
+// -1.17px, drawn overlapping the roof they were supposed to be under, while a
+// margin that counted only the nudge called them legal.
+const SHAPE_OF = { '<': 'halfLeft', '>': 'halfRight', o: 'small' };
+let tightest = { gap: Infinity };
+for (const [i, level] of LEVELS.entries()) {
+  if (!level.cavity || level.boss) continue;
+  level.rows.forEach((row, r) => {
+    [...row].forEach((ch, c) => {
+      if (ch === '.') return;
+      const shape = SHAPE_OF[ch] ?? 'full';
+      const box = BRICK.shapes[shape];
+      const w = BRICK_W * box.w;
+      const h = BRICK_H * box.h;
+      // Inlined rather than reusing cellBox(): that is declared further down,
+      // next to the map it feeds, and this check has to run before it.
+      const bx = GRID.x + c * GRID.cellW + GRID.gap / 2 + (BRICK_W - w) * box.align;
+      const by = GRID.y + r * GRID.cellH + GRID.gap / 2 + (BRICK_H - h) * 0.5;
+      let d = Infinity;
+      for (let u = 0; u <= 12; u++) {
+        for (let v = 0; v <= 12; v++) {
+          d = Math.min(d, strokeDistance(bx + (w * u) / 12, by + (h * v) / 12));
+        }
+      }
+      const gap = d - tractMargin(w, h) + BRICK.clearance;
+      if (gap < tightest.gap) tightest = { gap, label: `level ${i + 1} "${level.name}" r${r}c${c} '${ch}'` };
+    });
+  });
+}
+check(
+  tightest.gap >= BRICK.clearance,
+  `every cell clears the wireframe (tightest ${tightest.gap.toFixed(2)}px at ${tightest.label}, ` +
+    `floor ${BRICK.clearance}px)`,
+);
+/* --- 4. every ring must be a ring --------------------------------------- */
+//
+// THE DEFECT THIS REPLACES, AND WHY THE TEST HAD TO CHANGE SHAPE. While
+// anatomy.js held hand-authored curve commands, the failure worth catching was
+// a loop whose closing run stopped short of the point it opened on — invisible
+// to every consumer, because the crossing test closes a ring implicitly and
+// keeps answering correctly while the only symptom is a length of missing neon.
+// It happened once, when the frontal roof was moved and the medial wall
 // underneath it was left ending at the old height.
 //
-// A pixel of slack, because these are flattened curve endpoints rather than the
-// authored numbers, and an exact-equality test would be a trap for the next
-// person who closes a loop with a curve instead of a line.
+// The rings are traced from the painting now and closure is implicit: there is
+// no closing command to get wrong, and the first and last points are
+// deliberately DIFFERENT — a duplicate would give strokeDistance a zero-length
+// edge to divide by. What can still go wrong is a ring that got truncated or
+// collapsed on its way through the tracer, so what is asserted is that each one
+// is still a ring: enough points to bound an area, a real area to bound, and no
+// seam longer than the longest ordinary edge, which is what a dropped span
+// would look like.
 for (const st of NOSE_STROKES) {
   if (!st.closed) continue;
+
+  const n = st.points.length;
+  let area = 0;
+  let longest = 0;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    area += st.points[j][0] * st.points[i][1] - st.points[i][0] * st.points[j][1];
+    longest = Math.max(longest, Math.hypot(
+      st.points[i][0] - st.points[j][0],
+      st.points[i][1] - st.points[j][1],
+    ));
+  }
+  area = Math.abs(area / 2);
+
   const [fx, fy] = st.points[0];
-  const [lx, ly] = st.points[st.points.length - 1];
-  const gap = Math.hypot(lx - fx, ly - fy);
-  check(gap < 1, `'${st.id}' closes (${gap.toFixed(2)}px between its ends)`);
+  const [lx, ly] = st.points[n - 1];
+  const seam = Math.hypot(lx - fx, ly - fy);
+
+  check(
+    n >= 12 && area > 100 && seam <= longest + 0.01,
+    `'${st.id}' is a closed ring (${n} pts, ${area.toFixed(0)}px², seam ${seam.toFixed(1)}px ` +
+      `vs longest edge ${longest.toFixed(1)}px)`,
+  );
 }
 
 /* --- 4b. every glow focus must sit inside the shape it lights ---------- */
@@ -120,12 +189,23 @@ for (const s of NOSE_STROKES) {
   }
 }
 check(
-  minX > FIELD.left && maxX < FIELD.right && minY > FIELD.top,
-  `the section fits the playfield (x ${minX.toFixed(0)}..${maxX.toFixed(0)}, y from ${minY.toFixed(0)})`,
+  minX > FIELD.left && maxX < FIELD.right,
+  `the section fits between the walls (x ${minX.toFixed(0)}..${maxX.toFixed(0)})`,
 );
 check(
   maxY < PADDLE.y - PADDLE.height * 2,
   `the section clears the paddle band (lowest ${maxY.toFixed(0)}, paddle at ${PADDLE.y})`,
+);
+// NOT ASSERTED AGAINST FIELD.top, and that is deliberate rather than an
+// oversight in the bounds above. The painted frontal chambers reach y 30,
+// which is up behind the HUD — the art was composed for the full 16:9 frame and
+// the cover-fit crop keeps all of it. Nothing is wrong with that: the top of a
+// chamber the player cannot see is simply top of a chamber no brick can occupy,
+// and the grid starts at GRID.y anyway. It is reported so the number is not
+// mistaken for a fault the next time someone reads this output.
+notes.push(
+  `note  the section starts at y ${minY.toFixed(0)}, above FIELD.top ${FIELD.top} — ` +
+    `${(FIELD.top - minY).toFixed(0)}px of painted chamber sits behind the HUD`,
 );
 
 /* --- 6. the tracts must have room for a layout at all ------------------- */
@@ -140,7 +220,13 @@ const cellBox = (c, r, shape) => {
   const by = GRID.y + r * GRID.cellH + GRID.gap / 2 + (BRICK_H - h) * 0.5;
   return [bx, by, bx + w, by + h];
 };
-const usable = (c, r, shape) => rectInsideTract(...cellBox(c, r, shape), BRICK.scatter);
+const usable = (c, r, shape) => {
+  const box = BRICK.shapes[shape];
+  return rectInsideTract(
+    ...cellBox(c, r, shape),
+    tractMargin(BRICK_W * box.w, BRICK_H * box.h),
+  );
+};
 
 let capacity = 0;
 const map = [];
@@ -156,7 +242,54 @@ for (let r = 0; r < GRID.rows; r++) {
   }
   map.push(line);
 }
-check(capacity >= 20, `the tracts can hold a layout (${capacity} cells usable by some shape)`);
+// FOURTEEN IS THE PAINTING'S OWN NUMBER, not a target. It was 20 here while
+// the geometry was the old hand-authored curves, which described a sinus with
+// twice the painted area — so the floor was being met by cells sitting out in
+// bare background. Retracing the chambers from background.png cut the real
+// capacity to 14, seven a side. The floor is 14 because that is what the art
+// holds; if it drops below, the geometry moved and the layouts below it are
+// already broken.
+check(capacity >= 14, `the chambers can hold a layout (${capacity} positions usable by some shape)`);
+
+/* --- 7. where did the bone go? ----------------------------------------- */
+//
+// Bone is the one character validateLevels does not check, because a sinus is a
+// void in the facial skeleton and bone is correct on either side of the wall —
+// inside a chamber it obstructs the mucus, outside it is a fixed deflector in
+// open board. Untested is not the same as unwatched: a bone cell that was meant
+// for a cheekbone and landed half over a wall is exactly the kind of thing that
+// reads as a rendering fault, so each one is classified and printed.
+const boneReport = [];
+for (const [i, level] of LEVELS.entries()) {
+  if (!level.cavity || level.boss) continue;
+
+  const placed = [];
+  level.rows.forEach((row, r) => {
+    [...row].forEach((ch, c) => {
+      if (ch !== 'B') return;
+
+      const [x0, y0, x1, y1] = cellBox(c, r, 'full');
+      let inside = 0;
+      let samples = 0;
+      for (let u = 0; u <= 8; u++) {
+        for (let v = 0; v <= 8; v++) {
+          samples++;
+          if (insideTract(x0 + ((x1 - x0) * u) / 8, y0 + ((y1 - y0) * v) / 8)) inside++;
+        }
+      }
+      placed.push({ r, c, where: inside === 0 ? 'outside' : inside === samples ? 'inside' : 'STRADDLING' });
+    });
+  });
+
+  if (!placed.length) continue;
+  const straddling = placed.filter((p) => p.where === 'STRADDLING');
+  check(
+    straddling.length === 0,
+    `level ${i + 1} "${level.name}" bone is cleanly placed ` +
+      `(${placed.map((p) => `r${p.r}c${p.c} ${p.where}`).join(', ')})`,
+  );
+  boneReport.push(`  level ${i + 1} "${level.name}": ${placed.map((p) => `r${p.r}c${p.c} ${p.where}`).join(', ')}`);
+}
 
 /* --- plan view ---------------------------------------------------------- */
 const W = 92;
@@ -203,6 +336,11 @@ console.log(grid.map((r) => '  ' + r.join('').replace(/\s+$/, '')).join('\n'));
 console.log('\n  Usable cells per shape — # full, < left half, > right half, = either half, o small only\n');
 console.log('     ' + Array.from({ length: GRID.cols }, (_, c) => String(c).padStart(3)).join(''));
 console.log(map.join('\n'));
+
+if (boneReport.length) {
+  console.log('\n  Bone placement — the one character containment does not constrain\n');
+  console.log(boneReport.join('\n'));
+}
 
 console.log('\n' + notes.map((n) => '  ' + n).join('\n'));
 if (problems.length) {

@@ -47,20 +47,26 @@ import { GLOW_FOCI, GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
 const CX = DESIGN.width / 2;
 
 /**
- * Replay an authored path into a Graphics as real curve commands.
+ * Replay a ring of points into a Graphics.
  *
- * The one place the renderer sees the source geometry rather than the
- * flattened approximation. A 'C' command becomes a genuine `bezierCurveTo` and
- * a 'Q' a `quadraticCurveTo`, so PixiJS tessellates for the screen instead of
- * inheriting the chord length collision picked.
+ * THIS USED TO REPLAY CURVE COMMANDS, and the change is not a simplification
+ * for its own sake — the source geometry changed under it. anatomy.js held
+ * hand-authored 'M'/'L'/'Q'/'C' runs while this class was the thing that drew
+ * the section, and replaying them as real `bezierCurveTo` calls let PixiJS
+ * tessellate for the screen instead of inheriting the chord length the
+ * containment test had picked. The section is a painting now
+ * (see GameScene._buildField) and the geometry is traced back out of it, so
+ * there are no curves left to replay: a ring arrives already at about 0.9
+ * design px of accuracy, which is finer than the tessellation would have been.
+ *
+ * `closed` closes the ring for stroking. Nothing else has to append the first
+ * point again, and nothing should: a duplicate point gives strokeDistance in
+ * cavity.js a zero-length edge.
  */
-function tracePath(g, cmds) {
-  for (const c of cmds) {
-    if (c[0] === 'M') g.moveTo(c[1], c[2]);
-    else if (c[0] === 'L') g.lineTo(c[1], c[2]);
-    else if (c[0] === 'Q') g.quadraticCurveTo(c[1], c[2], c[3], c[4]);
-    else g.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]);
-  }
+function traceRing(g, points, closed) {
+  g.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) g.lineTo(points[i][0], points[i][1]);
+  if (closed) g.closePath();
 }
 
 /**
@@ -235,13 +241,13 @@ export class SinusBackdrop extends Container {
    * Bloom, halo, then the solid body — for each wall, onto its own side's
    * Graphics.
    *
-   * The paths are drawn as real cubics: `bezierCurveTo` straight off each
-   * stroke's authored spline, not the flattened polyline the physics uses.
-   * PixiJS then tessellates for the screen, so the outline stays smooth at any
-   * viewport scale instead of carrying the chord length collision needs.
+   * The rings are drawn as polylines, because that is what the geometry is:
+   * traced out of background.png at about 0.9 design px, finer than any
+   * tessellation this would have chosen. See `traceRing`.
    *
-   * Every pass takes its width from the stroke's own radius, so there is no
-   * width constant in this method that could drift. Colour is baked white and
+   * Every pass takes its width from the stroke's own `lineRadius` — NOT its
+   * `radius`, which is the brick-containment reach and is zero for a chamber.
+   * See the note on `stroke()` in cavity.js. Colour is baked white and
    * supplied by `tint` in `update`, which is what lets each cavity be recoloured
    * independently without re-tessellating a single path.
    *
@@ -268,7 +274,7 @@ export class SinusBackdrop extends Container {
     ];
 
     for (const tier of tiers) {
-      for (const { path, radius, side } of NOSE_STROKES) {
+      for (const { points, lineRadius: radius, closed, side } of NOSE_STROKES) {
         const g = ownerFor(side)[tier.layer];
 
         /**
@@ -290,7 +296,7 @@ export class SinusBackdrop extends Container {
 
         if (width < 0.5) continue;
 
-        tracePath(g, path);
+        traceRing(g, points, closed);
 
         g.stroke({
           // The body tier is exactly the capsule the collision test measures;

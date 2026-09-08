@@ -95,6 +95,23 @@ export const BRICK = {
    */
   scatter: 4,
   tilt: 0.05,
+
+  /**
+   * Breathing room a cell must keep from the sinus wireframe, on top of the
+   * worst case of `scatter` and `tilt` combined.
+   *
+   * WITHOUT THIS THE VALIDATOR WAS UNDERCOUNTING. It passed the box the cell is
+   * authored at, offset by `scatter` — but a cell is also TILTED about its own
+   * centre, and a corner 24px out swings 1.2px further on top of the nudge. The
+   * two bone caps at the roof of level 1 came out at -1.17px: they were drawn
+   * overlapping the wall they were supposed to be sitting under, and the check
+   * called it legal.
+   *
+   * Three pixels is what makes the difference visible rather than merely
+   * true — a cell that clears the stroke by a hair still reads as fused to it
+   * at 640x480. It costs six of the 38 legal cells; see the note in levels.js.
+   */
+  clearance: 3,
   /** Corner radius. Just under half the cell height, so it reads as a capsule. */
   radius: 7,
 };
@@ -460,7 +477,25 @@ export const CYCLAMEN = {
   /** Petal body, and the deeper throat colour at the flower's centre. */
   petal: 0xff66b2,
   throat: 0xcc0099,
-  visualScale: 1.15,
+  /**
+   * How far the flower oversteps the ball's collision radius.
+   *
+   * THE POINT OF THE BALL IS THAT IT IS A CYCLAMEN, and at 1.15 nobody could
+   * tell. BALL.radius is 5, so the art was 11.5 design pixels across; on a
+   * 1080p screen the viewport scale is 2.25, which put a 85x89 five-petal
+   * flower on screen at about 26 device pixels. At that size it is a magenta
+   * dot. 1.55 takes it to 15.5 design pixels, roughly 35 on the same screen,
+   * which is where the petal silhouette starts to survive.
+   *
+   * COSMETIC ONLY — this multiplies the sprite, never `Ball.radius`, so the
+   * hitbox and every level's difficulty are untouched. The cost is overhang:
+   * the art now reaches 2.75px past the collision circle on each side, so a
+   * near miss can look like a graze. That is the ceiling on this number, and
+   * it is why the flower did not simply get doubled. If the BALL itself should
+   * be bigger rather than just its picture, BALL.radius is the lever — it moves
+   * the hitbox, and it changes the balance of all 13 levels.
+   */
+  visualScale: 1.55,
 
   /**
    * Tumble in rad/s at BALL.baseSpeed, scaled by the ball's live speed.
@@ -684,36 +719,26 @@ export const SINUS = {
  */
 export const CAVITY = {
   /**
-   * Curve flattening, in design pixels of segment length.
-   *
-   * The renderer strokes the true curves; the flattened chords are what the
-   * containment test measures a brick against. 4 holds the gap under a
-   * fiftieth of a pixel on the tightest bend here — the alveolar recess — so
-   * "inside the tract" means inside the shape the player can actually see.
-   *
-   * It costs nothing at runtime. Flattening happens once at module load, and
-   * the only consumer after that is level validation.
-   */
-  flatten: 4,
-
-  /**
-   * Stroke radii, in design pixels: half the drawn line width, and the reach
-   * the brick-containment margin is measured from.
-   *
-   * These used to be collision radii as well, which is why they are radii
-   * rather than widths. Nothing bounces off them now — the septum is fatter
-   * than the walls because it is the divider the two passages are read
-   * against, not because it was ever a better bumper.
-   */
-  /**
    * Line width per structure, as a radius: the stroke is drawn at twice this.
+   *
+   * THESE ARE DRAWING WIDTHS AND NOTHING ELSE NOW. They were once collision
+   * radii, which is why they are radii rather than widths, and after that they
+   * doubled as the reach the brick-containment margin was measured from. That
+   * second job is gone: the chamber rings in anatomy.js are traced from the
+   * air side of the painted wall, so the distance from a brick to a ring is
+   * already the distance to the wall and `stroke()` in cavity.js gives every
+   * chamber a containment radius of zero. `wallRadius` survives as the width
+   * sinus.js would stroke a chamber at, which nothing currently asks it to do.
    *
    * They differ on purpose, and the hierarchy is the drawing's depth cue. A
    * section rendered at one uniform weight reads as a diagram; varying it reads
    * as a scan, where dense cortical bone returns a thicker brighter line than a
-   * thin bony septum does. Heaviest for the structures that carry the section —
-   * the sinus walls carry the section; the septum is a hairline between them.
-   * Nothing here is a collision reach any more.
+   * thin bony septum does. The sinus walls carry the section; the septum is a
+   * hairline between them.
+   *
+   * There used to be a `flatten` here as well, the chord length anatomy.js's
+   * hand-authored curves were subdivided at. There are no curves left to
+   * subdivide — see the note at the top of that file.
    */
   wallRadius: 3.5,
   septumRadius: 1.5,

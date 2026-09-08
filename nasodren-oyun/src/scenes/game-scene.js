@@ -267,10 +267,75 @@ export class GameScene extends Scene {
     this.backdrop = null;
 
     const background = new Sprite(TEX.background);
-    background.anchor.set(0);
-    background.position.set(0, 0);
-    background.width = DESIGN.width;
-    background.height = DESIGN.height;
+
+    // The mip chain and the anisotropic sampler are declared at load time on
+    // the manifest entry in core/assets.js — that is the authoritative place,
+    // because `mipLevelCount` is frozen when the GPU texture is created, and a
+    // flag set after that is a flag set too late.
+    //
+    // This is the belt to that pair of braces, and it is not superfluous: a Vite
+    // hot reload can hand this scene a source that was created before the
+    // manifest entry above existed, and it would still be doing the same brutal
+    // minification. Cheap and idempotent — the setters only write fields, and
+    // the single `update()` is what publishes the change: without it the style
+    // keeps its cached resource id and the renderer never rebuilds the sampler.
+    //
+    // GUARDED ON TEX.background, and that guard is the whole reason this is four
+    // lines instead of three. `background` is the ONE image key in textures.js
+    // with no procedural fallback bake, so a failed load leaves it undefined and
+    // `new Sprite(undefined)` quietly resolves to the shared Texture.EMPTY. Force
+    // a mip chain onto that and every white 1x1 in the game inherits it.
+    if (TEX.background) {
+      const source = background.texture.source;
+      source.autoGenerateMipmaps = true;
+      source.style.scaleMode = 'linear'; // magFilter + minFilter + mipmapFilter
+      source.style.maxAnisotropy = 16;
+      source.style.update();
+    }
+
+    // COVER-FIT, NOT STRETCH — and this, not the sampler above, is the bigger
+    // half of the quality problem. background.png is 1920x1080 (aspect 1.778)
+    // and the design box is 640x480 (aspect 1.333). Assigning `width` and
+    // `height` scales the two axes INDEPENDENTLY: 0.333x across against 0.444x
+    // down, so the artwork was squeezed 25% horizontally. Every curve in it was
+    // drawn as an ellipse, and — worse for sharpness — each axis was resampled
+    // at a different rate, which no amount of filtering can undo because the
+    // distortion is in the geometry, not the sampling.
+    //
+    // Scale uniformly by whichever axis needs more coverage and let the surplus
+    // hang off the sides. It is free to let it overflow: Viewport installs a
+    // 640x480 mask on its root (see core/viewport.js), so the crop is already
+    // being done by the same mask that draws the letterbox bars.
+    //
+    // WHAT THIS COSTS: 16:9 into 4:3 crops 240px from each end of the source,
+    // leaving a 1440x1080 window onto the art. Anything composed hard against
+    // the left or right edge of the PNG is now off-screen. If that matters more
+    // than the distortion did, `Math.min` here letterboxes instead — but the
+    // real answer is a 4:3 re-export, which also fixes the resolution ceiling
+    // noted below.
+    const cover = Math.max(
+      DESIGN.width / background.texture.width,
+      DESIGN.height / background.texture.height,
+    );
+    background.anchor.set(0.5);
+    background.scale.set(cover);
+    background.position.set(DESIGN.width / 2, DESIGN.height / 2);
+
+    // THE REMAINING CEILING IS THE ASSET, NOT THE CODE, and it is worth writing
+    // down so the next person does not go looking for another filter flag. With
+    // cover-fit the visible 1440x1080 of source has to cover a board that is
+    // 640*s by 480*s device pixels, where s = min(screenW/640, screenH/480) and
+    // the screen is already multiplied by a device pixel ratio capped at 2:
+    //
+    //   1366x768  DPR 1   board 1024x768    0.71x  minified, mipmaps handle it
+    //   1920x1080 DPR 1   board 1440x1080   1.00x  exactly native, ideal
+    //   2560x1440 DPR 1   board 1920x1440   1.33x  MAGNIFIED, soft
+    //   1440x900  DPR 2   board 2400x1800   1.67x  MAGNIFIED, visibly soft
+    //
+    // Past 1080p the texture is being enlarged, and mipmaps do nothing for
+    // magnification — they only ever supply SMALLER levels. A 2560x1920 export
+    // (4:3, so nothing is cropped either) stays native up to a 4.0x viewport,
+    // which covers every case in that table.
     // The source art reads far brighter than the play layer sitting on top
     // of it — bricks and the ball were getting lost against it. A flat
     // multiply tint is the cheapest fix: darkens the whole image with zero
