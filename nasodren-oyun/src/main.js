@@ -35,6 +35,15 @@ async function boot() {
   const ctx = { app, viewport, input, audio, save, sm: null, mode: null, modeToggle: null };
   ctx.sm = new SceneManager(ctx, viewport.stage);
 
+  // Rotating a phone, or dragging a desktop window into a taller shape, moves
+  // the board's floor. Wired after the SceneManager exists because Viewport's
+  // constructor has already run one layout by this point — the one that gave
+  // this process its design box in the first place, back when there was
+  // nothing built to tell about it.
+  viewport.onLayout = ({ boxChanged }) => {
+    if (boxChanged) ctx.sm.resize();
+  };
+
   // Main-menu mode switcher. Stores the selection on the context; no gameplay
   // system reads it yet.
   ctx.modeToggle = new ModeToggle(document.getElementById('mode-toggle'), {

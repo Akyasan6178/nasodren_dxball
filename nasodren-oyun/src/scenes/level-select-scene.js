@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { COLORS, DESIGN, GRID, RUN, SCORE } from '../game/config.js';
+import { COLORS, DESIGN, frameDrop, GRID, RUN, SCORE } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
 import { TEX } from '../game/textures.js';
 import { Button, makeText, panel } from '../game/ui.js';
@@ -35,9 +35,16 @@ export class LevelSelectScene extends Scene {
   enter() {
     const { save, audio, sm, input } = this.ctx;
 
+    // See frameDrop(): the picker is composed against the authored frame and
+    // this keeps it centred on a portrait board. The back button below stays
+    // outside, anchored to the floor.
+    this.content = new Container();
+    this.content.y = frameDrop();
+    this.view.addChild(this.content);
+
     const title = makeText('BÖLÜM SEÇ', { size: 30, anchor: 0.5, title: true });
     title.position.set(DESIGN.width / 2, 46);
-    this.view.addChild(title);
+    this.content.addChild(title);
 
     const hint = makeText(`AÇIK  ${save.unlocked} / ${LEVELS.length}`, {
       size: 11,
@@ -45,12 +52,12 @@ export class LevelSelectScene extends Scene {
       color: 0x6a7bb5,
     });
     hint.position.set(DESIGN.width / 2, 74);
-    this.view.addChild(hint);
+    this.content.addChild(hint);
 
     const grid = new Container();
     const totalW = COLS * CELL_W + (COLS - 1) * GAP;
     grid.position.set((DESIGN.width - totalW) / 2, 100);
-    this.view.addChild(grid);
+    this.content.addChild(grid);
 
     LEVELS.forEach((level, i) => {
       const unlocked = i < save.unlocked;
@@ -83,6 +90,7 @@ export class LevelSelectScene extends Scene {
       sm.change(MenuScene, {});
     }, { width: 220, accent: 0xff4d5a });
     back.position.set((DESIGN.width - 220) / 2, DESIGN.height - 62);
+    this.backButton = back;
     back.setSelected(true);
     this.view.addChild(back);
 
@@ -195,6 +203,16 @@ export class LevelSelectScene extends Scene {
     }
 
     return tile;
+  }
+
+  /**
+   * The design box changed shape — see SceneManager.resize. Only the pieces
+   * measured from the board's floor need moving; everything laid out from the
+   * top is already where it belongs.
+   */
+  resize() {
+    this.content.y = frameDrop();
+    this.backButton.y = DESIGN.height - 62;
   }
 
   exit() {

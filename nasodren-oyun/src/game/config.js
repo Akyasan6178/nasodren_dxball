@@ -2,9 +2,16 @@
  * Central tuning table. Every magic number in the game lives here so the feel
  * can be adjusted without hunting through systems.
  *
- * All gameplay maths happens in DESIGN-space pixels (640x480). The viewport
- * layer scales that box to fit the window, so collision logic never has to
- * know how big the browser is.
+ * All gameplay maths happens in DESIGN-space pixels. The viewport layer scales
+ * that box to fit the window, so collision logic never has to know how big the
+ * browser is.
+ *
+ * THE BOX IS 640 WIDE ALWAYS AND 480 TALL ONLY SOMETIMES. `DESIGN.height` is
+ * the one number in this file that moves at runtime: on a screen taller than
+ * 4:3 — which in practice means a phone held upright — the board's floor drops
+ * to meet the screen instead of letterboxing into a strip a third of the
+ * display tall. See the responsive-layout section at the bottom of this file.
+ * Everything between here and there is measured from y 0 and is unaffected.
  */
 
 export const DESIGN = { width: 640, height: 480 };
@@ -951,3 +958,199 @@ export const MUSIC = {
     { upTo: 11, track: 'levelC' },
   ],
 };
+
+/* ==================================================== responsive layout == */
+
+/**
+ * The frame the art and the geometry were authored in.
+ *
+ * background.png is cover-fitted into THIS box and anatomy.js's rings are
+ * traced from the result, so the painted nose and the brick-containment
+ * geometry only agree with each other at 640x480. It is constant in the
+ * strongest sense in this file: `DESIGN.height` moves, this never does, and
+ * anything that has to line up with the painting measures from here.
+ */
+export const DESIGN_FRAME = { width: 640, height: 480 };
+
+/**
+ * How tall the design box may grow on a screen taller than the frame.
+ *
+ * THE ONLY THING THIS BUYS IS LANE LENGTH, which is worth stating plainly
+ * because it is not obvious and it was got wrong once. The board always fits
+ * to width, so the scale is fixed by the screen's width alone: the painted
+ * nose is 224px across on a 390px-wide phone at EVERY value of this constant.
+ * Raising it does not make the nose, the bricks or the ball one pixel bigger.
+ * All it does is stretch the empty lane between the maxillary floor at y 388
+ * and the paddle, and turn black margin below the board into board.
+ *
+ * SO THE QUESTION IS ONLY HOW MUCH REACTION ROOM A PHONE WANTS. The authored
+ * lane at 640x480 is 54px. 560 makes it 134px, about two and a half times,
+ * which is a real cushion on a small screen without the board reading as a
+ * corridor. An earlier pass set this to 860 — an eight-times lane, 434px —
+ * chasing "fill the screen"; on a phone that is a different game, and it was
+ * reported as the board being far too stretched.
+ *
+ * The ceiling still matters for the uncapped case: a 19.5:9 screen asks for
+ * 640x1385, where a ball leaving the maxillary falls for three seconds at
+ * BALL.baseSpeed. Retune this one number to trade lane against black margin;
+ * nothing else has to move, and CAPSULE.fallSpeed follows it automatically.
+ */
+const MAX_DESIGN_HEIGHT = 560;
+
+/**
+ * Distances measured from the board's FLOOR rather than its ceiling, captured
+ * at the authored frame height before anything can move them.
+ *
+ * This is the complete list, which is the point of writing it down. Everything
+ * else in the game measures down from y 0 — the HUD, the walls' top edge, the
+ * brick grid, the painted section, the corruption meter — and a taller board is
+ * invisible to all of it.
+ */
+const PADDLE_BOTTOM_INSET = DESIGN_FRAME.height - PADDLE.y;
+const CAPSULE_BASE_FALL = CAPSULE.fallSpeed;
+const CAPSULE_BASE_LANE = PADDLE.y - GRID.y;
+
+/**
+ * How tall the design box should be for a screen of this size.
+ *
+ * WIDTH IS THE ANCHOR AND HEIGHT IS THE FREE AXIS. The board's width is what
+ * the whole layout is built around — thirteen 48px grid columns, the painted
+ * section between the two side walls, the HUD's three regions — so it stays at
+ * 640 and the box grows downward instead. `fitted` is the height at which the
+ * box would exactly fill the screen once its width does.
+ *
+ * ON ANY SCREEN 4:3 OR WIDER THIS RETURNS THE FRAME HEIGHT, so every desktop
+ * window and every phone held in landscape is laid out exactly as it was before
+ * this function existed. It has anything to say only about a screen taller than
+ * the frame.
+ */
+export function resolveDesignHeight(screenW, screenH) {
+  if (!screenW || !screenH) return DESIGN_FRAME.height;
+
+  const fitted = (DESIGN.width * screenH) / screenW;
+  return Math.round(Math.max(DESIGN_FRAME.height, Math.min(MAX_DESIGN_HEIGHT, fitted)));
+}
+
+/**
+ * Move the board's floor, and the handful of things measured from it.
+ *
+ * Called from Viewport.layout on every resize, so it is idempotent and cheap.
+ * The boolean is what callers use to skip the expensive follow-up work — a
+ * scene reflow, a chrome redraw — on the resizes that did not change the box,
+ * which is most of them.
+ */
+export function applyDesignHeight(height) {
+  if (height === DESIGN.height) return false;
+
+  DESIGN.height = height;
+  FIELD.bottom = height;
+  PADDLE.y = height - PADDLE_BOTTOM_INSET;
+
+  // Capsules scale with the lane they fall down, so a power-up released at the
+  // top of the grid takes the same time to reach the paddle as it does at the
+  // frame height. Left unscaled, a 640x860 board turns collecting one into a
+  // four-second wait — a drop is a reward, not a mechanic.
+  //
+  // THE BALL IS DELIBERATELY NOT SCALED HERE. Scaling it too would make a tall
+  // board play identically to a short one, only zoomed, and the extra reaction
+  // time in the lane below the nose is the entire reason for the tall board.
+  CAPSULE.fallSpeed = (CAPSULE_BASE_FALL * (PADDLE.y - GRID.y)) / CAPSULE_BASE_LANE;
+
+  return true;
+}
+
+/**
+ * How far to drop a group that was composed against the authored frame so that
+ * it stays centred on the board.
+ *
+ * ZERO AT THE FRAME HEIGHT, which is what makes it safe to use freely: every
+ * landscape and desktop layout is unchanged by definition, and only a portrait
+ * board sees any offset at all.
+ *
+ * It is for the menu and result CARDS, which are composed top-down against 480
+ * and would otherwise sit in the top third of a portrait board with the rest
+ * of it empty. GameScene deliberately does NOT use it for the playfield: that
+ * layout is anchored to the ceiling (the HUD, the brick grid, the painting)
+ * and to the floor (the paddle) rather than centred, which is the whole reason
+ * the box grows downward. Its pause card does use it.
+ */
+export function frameDrop() {
+  return (DESIGN.height - DESIGN_FRAME.height) / 2;
+}
+
+/* ======================================================== HUD scaling == */
+
+/**
+ * Live HUD scale. 1 on a desktop, up to HUD_MAX_SCALE on a phone.
+ *
+ * A mutable field for the same reason `DESIGN.height` is one: every reader
+ * wants the current value at call time, and threading it through Hud, the
+ * pause button and Viewport as an argument would mean three places that can
+ * disagree about how big the bar is.
+ */
+export const HUD = { scale: 1 };
+
+/**
+ * The physical size the bar is aiming for, in CSS pixels.
+ *
+ * 36 design pixels of bar comes out at 68 CSS pixels on a 1440px desktop and
+ * 22 on a 390px phone, where the 22px pause glyph inside it lands at 13 — too
+ * small to read and well under any reasonable tap target. 40 is the floor at
+ * which the bar's text is legible on a phone held at arm's length; the scale
+ * needed to reach it is derived rather than tabulated.
+ */
+const HUD_TARGET_CSS = 40;
+
+/**
+ * Ceiling on the scale, because the bar competes for width as it grows.
+ *
+ * At 1.8 the level text is 27px and the lives are 29px hearts, which still
+ * leaves the pause toggle its lane at x 450 — Hud._applyLevelText drops the
+ * level NAME when it would not. Much past that and the three regions of the
+ * bar start fighting over the same 640 pixels.
+ */
+const HUD_MAX_SCALE = 1.8;
+
+/**
+ * How big the HUD should be for this board scale and this much headroom.
+ *
+ * TWO LIMITS, AND THE SECOND IS THE INTERESTING ONE. The bar grows UPWARD,
+ * into the letterbox space above the board, because everything below y 36 is
+ * spoken for: the top wall sits at 36..44 and row 0's bricks start at y 61.
+ * So the scale can only rise as far as there is empty screen above the board
+ * to rise into, which is what `headroom` measures.
+ *
+ * A phone in PORTRAIT has plenty — 206 design pixels on a 390x844 screen — and
+ * gets the full 1.8. A phone in LANDSCAPE has none at all: a 4:3 board fills
+ * the height exactly, so this returns 1 and the glyphs stay their authored
+ * size there. The pause button's tap target does not depend on this (see
+ * TAP_CSS in hud.js), so it stays reachable either way.
+ *
+ * @param {number} viewportScale design pixels -> CSS pixels
+ * @param {number} headroom design pixels of empty screen above the board
+ */
+export function resolveHudScale(viewportScale, headroom) {
+  if (!viewportScale) return 1;
+
+  const wanted = HUD_TARGET_CSS / (HUD_H * viewportScale);
+  const affordable = 1 + Math.max(0, headroom) / HUD_H;
+
+  return Math.max(1, Math.min(HUD_MAX_SCALE, wanted, affordable));
+}
+
+/** True if the scale actually moved, which is what gates a re-layout. */
+export function applyHudScale(scale) {
+  if (scale === HUD.scale) return false;
+  HUD.scale = scale;
+  return true;
+}
+
+/**
+ * How far above y 0 the bar reaches at the current scale.
+ *
+ * Viewport extends its mask by this much, or the extension is clipped away by
+ * the same mask that draws the letterbox bars.
+ */
+export function hudLift() {
+  return (HUD.scale - 1) * HUD_H;
+}

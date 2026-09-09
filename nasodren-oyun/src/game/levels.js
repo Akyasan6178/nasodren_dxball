@@ -50,6 +50,20 @@
  *               c4 c8            ANY, including a full cell
  *     row 13    c4 c8            half or small
  *
+ *   BONE READS OFF A DIFFERENT MAP ENTIRELY — it wants the wall, not the air —
+ *   and the levels below author it in the dead middle rows, on the floor of
+ *   the frontal chambers, where it gates the climb into them:
+ *
+ *     row  3    c3 c9     the frontal floor at its lateral tip, covering the
+ *                         approach up the flank
+ *               c4 c8     the frontal floor straight under the r0..r2 cells
+ *     row  4    c5 c7     the frontal floor at its medial corner, covering
+ *                         the approach up the septum lane
+ *
+ *   ROWS 3 AND 4 ARE DEAD FOR CONGESTION, which is what makes this free: a
+ *   bone cell there costs the layout none of its fourteen positions and buys
+ *   the only vertical obstacle on the board.
+ *
  *   ROWS 3 TO 11 ARE DEAD, all nine of them, and not because of a margin that
  *   could be tuned. The painting has no enclosed air space between the frontal
  *   chamber's floor at y 148 and the maxillary chamber's roof at y 270 — the
@@ -70,14 +84,42 @@
  *   also the only thing that puts brick2.png and brick3.png on screen, since a
  *   digit in a layout is always a one-hit cell.
  *
- * BONE IS EXEMPT FROM CONTAINMENT, and it is the one character that is. A
- * sinus is a hole in the facial skeleton, so the bone is by definition what
- * surrounds the air rather than what floats in it — a bone cell out in the dark
- * beside a chamber is anatomically the correct place for it, and reads as the
- * cheekbone the wing is hollowed out of. Levels place it both ways: inside a
- * chamber it is an obstruction the player has to work around, outside one it is
- * a fixed deflector in open board. `validateLevels` skips it; check-nose
- * reports where each one landed.
+ * BONE SITS ON A CHAMBER WALL, and that is a rule with teeth rather than an
+ * exemption. A sinus is a hole in the facial skeleton, so bone is by
+ * definition the boundary of the air space — not something floating in that
+ * air, and not something adrift in the dark beside it either.
+ * `rectOnTractWall` is what checks it: the wall has to cross the cell, and
+ * cross it through the cell's middle band rather than nicking a corner.
+ *
+ * THIS REPLACED A BLANKET EXEMPTION, and the exemption is why the rule exists.
+ * Bone used to be the one character containment did not constrain, on the
+ * reasoning that bone is correct on either side of a wall. True as anatomy,
+ * useless as a constraint: it let level 1 put its two cells 56px out in bare
+ * navy beside the nose and level 4 put its two in the middle of the maxillary
+ * air, both passing validation while doing it. Straddling the wall was in fact
+ * the one thing the old check actively rejected, as a suspected rendering
+ * fault. It is now the only thing it accepts.
+ *
+ * THE LEGAL POSITIONS ARE ELEVEN PER SIDE, against seven for congestion, so
+ * bone is the less constrained character even under the rule. `npm run
+ * check:nose` prints the live map and names the wall each authored cell
+ * landed on.
+ *
+ * AND OF THOSE ELEVEN, THE LEVELS BELOW USE THE ONES IN THE MIDDLE ROWS, on
+ * the floor of the frontal chambers. That is a level-design choice rather than
+ * a geometric constraint, and it is the one that gives bone a job. Congestion
+ * lives in two clusters eleven rows apart — the frontal chambers at rows 0..2
+ * and the maxillary wings at rows 12..13 — with nothing at all between them,
+ * so a ball aimed up the middle used to arrive at the frontal cells having
+ * passed nine rows of empty board. Bone on the frontal floor is the only thing
+ * standing in that corridor: the climb has to be worked around it instead of
+ * driven straight through.
+ *
+ * BONE ON THE MAXILLARY IS STILL LEGAL and check:nose still prints those
+ * positions — the wing roof at r11c4/r11c8 and the cheekbone apex at
+ * r12c2/r12c10 both pass. They are simply not where the difficulty is: a
+ * blocker beside the maxillary cells sits in a part of the board the ball is
+ * already spending its whole time in.
  *
  * NOTHING IN THE PAINTING IS SOLID. The ball bounces off the plain FIELD
  * rectangle on every level, exactly as it always did; the chambers constrain
@@ -85,7 +127,7 @@
  */
 
 import { BRICK, BRICK_W, BRICK_H, GRID } from './config.js';
-import { rectInsideTract, tractMargin } from './cavity.js';
+import { rectInsideTract, rectOnTractWall, tractMargin } from './cavity.js';
 
 export const LEVELS = [
   {
@@ -119,14 +161,23 @@ export const LEVELS = [
      * too — a full cell against the medial wall on both sides, but flanked by a
      * half on the left and by a small plus a half on the right.
      *
-     * TWO BONE CELLS, BOTH OUTSIDE THE SINUS, at r12c1 and r12c11. They sit
-     * lateral to each maxillary wing, in the dark where the painted cheekbone
-     * is, level with the widest part of the chamber they flank. Out there they
-     * are not obstructions in front of the mucus — they are two fixed
-     * deflectors standing in the open board either side of the nose, and a
-     * shot that comes off one arrives at the wing from an angle the paddle
-     * cannot set up directly. That is the whole of level 1's difficulty budget
-     * spent on geometry rather than on cell count.
+     * TWO BONE CELLS ON THE FRONTAL FLOOR, at r4c5 and r4c7. Each one
+     * straddles the lowest, most medial point of the frontal chamber above it
+     * — (272, 148) on the left and its mirror on the right — so the pair sits
+     * either side of the septum lane with the bone half in the air space and
+     * half in the floor it is a thickening of.
+     *
+     * WHAT THEY ARE FOR IS THE CLIMB. This level spreads its twelve cells over
+     * the full height of the nose, three per frontal chamber at rows 0..2 and
+     * three per wing at rows 12..13, with nine dead rows between. Without
+     * anything in that corridor the frontal cells are reachable on a straight
+     * drive up the middle. These two stand exactly where that drive arrives,
+     * so the shot has to be angled around them or taken up the flank instead.
+     *
+     * THEY USED TO BE AT r12c1 AND r12c11, out beside the maxillary wings,
+     * where they were 56px clear of any wall in bare navy background — two
+     * arcade rectangles floating beside a painting of a face — and where they
+     * obstructed a part of the board the ball already lives in.
      */
     name: 'Viral ARS',
     music: 0,
@@ -136,6 +187,7 @@ export const LEVELS = [
       '.....<.......',
       '....o..>o....',
       '.............',
+      '.....B.B.....',
       '.............',
       '.............',
       '.............',
@@ -143,8 +195,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.............',
-      '.B.>4...4<.B.',
+      '...>4...4<...',
       '....<...>....',
     ],
   },
@@ -193,7 +244,18 @@ export const LEVELS = [
     ],
   },
   {
-    /** Vault — bone in the belly of each wing; the mucus around it has to be dug out past it. 12 cells (6/6), 2 bone inside. */
+    /**
+     * Vault — bone across the floor of each frontal chamber, directly under
+     * the cells inside it, so the vault has to be opened from the side.
+     * 12 cells (6/6), 2 bone.
+     *
+     * r3c4 and r3c8 sit straight below the r0..r2 clusters, which is what
+     * makes this the vault: the three cells above each one cannot be taken on
+     * a rising shot through the column they are in. The bone was at
+     * r12c4/r12c8 for as long as bone was exempt from containment, floating in
+     * the middle of the maxillary air and blocking a corridor the ball was
+     * already in.
+     */
     name: 'Vault',
     music: 0,
     cavity: true,
@@ -201,6 +263,7 @@ export const LEVELS = [
       '.....o.o.....',
       '.....<.>.....',
       '....o<.>o....',
+      '....B...B....',
       '.............',
       '.............',
       '.............',
@@ -209,8 +272,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.............',
-      '...>B...B<...',
+      '...>.....<...',
       '....<...>....',
     ],
   },
@@ -259,7 +321,15 @@ export const LEVELS = [
     ],
   },
   {
-    /** Fortress — bone in each wing and on each cheek; the only way in is over the top. 6 cells (3/3), 4 bone. */
+    /**
+     * Fortress — a descending stair of bone along each frontal floor; the only
+     * way in is around the outside. 6 cells (3/3), 4 bone.
+     *
+     * r3c4/r3c8 covers the column the frontal cells sit in and r4c5/r4c7
+     * covers the medial corner beside the septum lane, so the two routes a
+     * rising shot can take into each chamber are both spoken for. With only
+     * six cells on the board the whole level is that approach problem.
+     */
     name: 'Fortress',
     music: 1,
     cavity: true,
@@ -267,6 +337,8 @@ export const LEVELS = [
       '.....o.o.....',
       '.............',
       '.....<.>.....',
+      '....B...B....',
+      '.....B.B.....',
       '.............',
       '.............',
       '.............',
@@ -275,8 +347,6 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.............',
-      '.B..B...B..B.',
       '....<...>....',
     ],
   },
@@ -303,7 +373,14 @@ export const LEVELS = [
     ],
   },
   {
-    /** Bunker — maxillary only, packed, with bone on both cheeks. The frontal chambers are a wasted trip. 6 cells (3/3), 2 bone outside. */
+    /**
+     * Bunker — maxillary only, packed, with bone plugging the mouth of each
+     * frontal chamber. 6 cells (3/3), 2 bone.
+     *
+     * The frontal chambers hold nothing on this level, so r4c5/r4c7 is doing
+     * something no other level asks of bone: it makes the wasted trip up there
+     * expensive to take by accident, instead of merely pointless.
+     */
     name: 'Bunker',
     music: 2,
     cavity: true,
@@ -312,6 +389,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
+      '.....B.B.....',
       '.............',
       '.............',
       '.............',
@@ -319,8 +397,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.............',
-      '.B.>4...4<.B.',
+      '...>4...4<...',
       '....<...>....',
     ],
   },
@@ -347,7 +424,18 @@ export const LEVELS = [
     ],
   },
   {
-    /** Gauntlet — bone in both wings AND on both cheeks, twelve cells around it. The most constrained board in the game. 12 cells (6/6), 4 bone. */
+    /**
+     * Gauntlet — bone across both approaches to each frontal chamber, twelve
+     * cells around it. The most constrained board in the game.
+     * 12 cells (6/6), 4 bone.
+     *
+     * The widest gate of the five: r3c3/r3c9 takes the frontal floor out at
+     * its lateral tip and r4c5/r4c7 takes it at the medial corner, so the
+     * flank approach and the septum-lane approach are blocked and the only way
+     * left into a full frontal chamber is the narrow column between them.
+     * Fortress uses the tighter r3c4/r3c8 pairing instead, which shields the
+     * cells more directly but leaves the flank open.
+     */
     name: 'Gauntlet',
     music: 2,
     cavity: true,
@@ -355,6 +443,8 @@ export const LEVELS = [
       '.....o.o.....',
       '.....<.>.....',
       '....o<.>o....',
+      '...B.....B...',
+      '.....B.B.....',
       '.............',
       '.............',
       '.............',
@@ -362,9 +452,7 @@ export const LEVELS = [
       '.............',
       '.............',
       '.............',
-      '.............',
-      '.............',
-      '.B.>B...B<.B.',
+      '...>.....<...',
       '....<...>....',
     ],
   },
@@ -440,12 +528,11 @@ export function cellBox(col, row, ch) {
  * chamber it claims to be blocking. A clump adrift in the open board is the
  * thing that would look broken, and it is not visible in a string of dots.
  *
- * BONE IS SKIPPED, which is a rule about anatomy rather than a loophole: the
- * sinus is a void in the facial skeleton, so bone belongs around the air, not
- * in it. Level 1 puts both of its bone cells out on the cheeks for exactly
- * that reason. Bone placed inside a chamber is legal too — it reads as a
- * sclerotic wall thickening into the air space — so neither position is
- * checked, only reported by check-nose.
+ * BONE IS CHECKED TOO, against the opposite rule: it has to sit ON a chamber
+ * wall, because the sinus is a void in the facial skeleton and bone is the
+ * skeleton. See `rectOnTractWall`. This used to be the one character nothing
+ * checked, which is how two cells ended up 56px out in the dark beside the
+ * nose on level 1 and two more floating in the maxillary air on level 4.
  *
  * Run from `scripts/check-nose.mjs`, which is where a layout should be taken
  * after touching any coordinate in anatomy.js.
@@ -466,9 +553,24 @@ export function validateLevels(cols) {
 
     level.rows.forEach((row, r) => {
       [...row].forEach((ch, c) => {
-        if (ch === '.' || ch === 'B') return;
+        if (ch === '.') return;
 
         const { x0, y0, x1, y1, w, h } = cellBox(c, r, ch);
+
+        // Bone is the wall, so it is measured against the wall rather than
+        // against the air. No margin term either: a margin is what keeps
+        // congestion clear of the wall, and clearing the wall is the one thing
+        // bone must not do.
+        if (ch === 'B') {
+          if (!rectOnTractWall(x0, y0, x1, y1)) {
+            problems.push(
+              `${label} bone at row ${r} col ${c} is not on a sinus wall — ` +
+                'bone is the skeleton the air space is hollowed out of, so it ' +
+                'belongs on the boundary, not adrift inside or outside it',
+            );
+          }
+          return;
+        }
 
         // See tractMargin(): the nudge, plus what a corner does when the cell
         // is tilted on top of it, plus the visible gap we want to see. Passing

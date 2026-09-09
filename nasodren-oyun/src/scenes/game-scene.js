@@ -8,7 +8,9 @@ import {
   CAVITY,
   CORRUPTION,
   DESIGN,
+  DESIGN_FRAME,
   difficultyControlScale,
+  frameDrop,
   difficultySpeedScale,
   FIELD,
   HUD_H,
@@ -50,6 +52,54 @@ import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { TransitionScene } from './transition-scene.js';
 
 const MAX_BALLS = 8;
+
+/**
+ * The lane below the painting on a portrait board, drawn as a faint floor.
+ *
+ * ONLY THE TRANSVERSE LINES, NOT THE PAINTED GRID'S CONVERGING ONES, and the
+ * reason is measured rather than aesthetic. background.png's floor grid is a
+ * radial family through a vanishing point at design (322, 334) whose spacing
+ * widens by 0.96px per pixel of depth: 139px apart where the painting ends at
+ * y 480, and 502px apart by y 860. Continuing it truthfully into a portrait
+ * lane puts exactly one line on a 640-wide board. It is geometry that only
+ * works at the depth it was painted for.
+ *
+ * The transverse lines have no such problem, and they earn their place twice:
+ * they keep the lane reading as a floor plane rather than a void, and they
+ * give the eye a ruler for how far a falling ball still has to travel, which
+ * on a phone-sized board is real information.
+ *
+ * NO FADE OVER THE SEAM AT y 480 EITHER, which an earlier pass had. The
+ * painting's bottom rows measure a mean luminance of 14.6 against the
+ * backdrop's 12.3 — the art has already faded itself out by the time it ends,
+ * so there is no seam to cover, and covering it only wiped out the horizon
+ * glow at y 390 that the art does have.
+ */
+/**
+ * The lowest painted point of the maxillary wings, in design pixels.
+ *
+ * Reported by `npm run check:nose` as the section's lowest extent, and used
+ * here as the top of the open lane: below this line there is nothing painted
+ * for the ball to be read against, whatever the board's height is.
+ */
+const MAXILLARY_FLOOR = 388;
+
+const FLOOR_STEP = 22;
+const FLOOR_GROWTH = 0.22;
+const FLOOR_COLOR = 0x35d0d8;
+const FLOOR_ALPHA = 0.05;
+
+/**
+ * How far up from y 480 the painting is blended into the backdrop.
+ *
+ * A much gentler thing than the fade this replaced: that one drove the last
+ * 56px to 92% opaque backdrop and took the painted horizon glow with it. This
+ * ramps to 55% over 40px, which is enough to take the edge off a 2.3-luminance
+ * step that is otherwise a visible hairline across the board on a big portrait
+ * screen, while leaving the horizon and the painted grid legible.
+ */
+const SEAM_H = 40;
+const SEAM_ALPHA = 0.55;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -256,7 +306,7 @@ export class GameScene extends Scene {
     this._buildPauseButton();
 
     this.message = makeText('', { size: 26, color: 0xffffff, anchor: 0.5, title: true });
-    this.message.position.set(DESIGN.width / 2, 300);
+    this.message.position.set(DESIGN.width / 2, this._messageY());
     this.message.visible = false;
     this.view.addChild(this.message);
 
@@ -329,13 +379,21 @@ export class GameScene extends Scene {
     // than the distortion did, `Math.min` here letterboxes instead — but the
     // real answer is a 4:3 re-export, which also fixes the resolution ceiling
     // noted below.
+    // FITTED TO DESIGN_FRAME, NOT TO DESIGN. The board's floor moves with the
+    // screen (see resolveDesignHeight in config.js) and the painting must not
+    // follow it: anatomy.js's rings are traced from this image cover-fitted
+    // into 640x480, so cover-fitting it into a 640x860 portrait box would
+    // scale the painted nose up by 1.8x and leave every brick-containment
+    // coordinate — and every bone cell sitting on a wall — pointing at nothing.
+    // The painting stays pinned to the top 480px and the extra height below it
+    // is open board.
     const cover = Math.max(
-      DESIGN.width / background.texture.width,
-      DESIGN.height / background.texture.height,
+      DESIGN_FRAME.width / background.texture.width,
+      DESIGN_FRAME.height / background.texture.height,
     );
     background.anchor.set(0.5);
     background.scale.set(cover);
-    background.position.set(DESIGN.width / 2, DESIGN.height / 2);
+    background.position.set(DESIGN_FRAME.width / 2, DESIGN_FRAME.height / 2);
 
     // THE REMAINING CEILING IS THE ASSET, NOT THE CODE, and it is worth writing
     // down so the next person does not go looking for another filter flag. With
@@ -359,7 +417,22 @@ export class GameScene extends Scene {
     background.tint = 0x666666;
     this.gameContainer.addChild(background);
 
-    const g = new Graphics();
+    this.fieldChrome = new Graphics();
+    this.gameContainer.addChild(this.fieldChrome);
+    this._drawFieldChrome();
+  }
+
+  /**
+   * The walls, their lit inner edge, the deadline, and the fade that closes
+   * off the bottom of the painting.
+   *
+   * SEPARATE FROM `_buildField` BECAUSE ALL OF IT IS MEASURED FROM THE FLOOR,
+   * and the floor moves: rotating a phone changes DESIGN.height, and Graphics
+   * geometry is baked at draw time rather than re-evaluated per frame. Called
+   * once at build and again from `resize`.
+   */
+  _drawFieldChrome() {
+    const g = this.fieldChrome.clear();
 
     // Side and top walls: structural chrome, and the collision surfaces. The
     // nose floats clear of all three by well over a hundred pixels, so these
@@ -368,6 +441,32 @@ export class GameScene extends Scene {
     g.rect(0, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
     g.rect(DESIGN.width - WALL, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
     g.rect(0, HUD_H, DESIGN.width, WALL).fill(wallFill);
+
+    // The portrait lane — see FLOOR_STEP. Nothing to draw on a board that is
+    // only as tall as the painting.
+    if (DESIGN.height > DESIGN_FRAME.height) {
+      const inner = DESIGN.width - WALL * 2;
+
+      // Blend the painting's bottom edge into the backdrop first, so the floor
+      // lines below are drawn over a settled ground rather than across a step.
+      const bands = 5;
+      for (let i = 0; i < bands; i++) {
+        g.rect(WALL, DESIGN_FRAME.height - SEAM_H + (SEAM_H * i) / bands, inner, SEAM_H / bands + 1)
+          .fill({ color: 0x0b0b16, alpha: (SEAM_ALPHA * (i + 1)) / bands });
+      }
+
+      // Transverse lines, spaced further apart the closer they get to the
+      // paddle. Even spacing reads as a ledger ruled across the board; a gap
+      // that grows toward the viewer reads as ground going away from them,
+      // which is what the painted grid above it is doing.
+      let y = DESIGN_FRAME.height;
+      for (let n = 0; y < PADDLE.y - FLOOR_STEP; n++) {
+        g.moveTo(WALL, y)
+          .lineTo(DESIGN.width - WALL, y)
+          .stroke({ width: 1, color: FLOOR_COLOR, alpha: FLOOR_ALPHA });
+        y += FLOOR_STEP * (1 + n * FLOOR_GROWTH);
+      }
+    }
 
     const edge = { width: 1.5, color: 0x35d0d8, alpha: 0.5 };
     g.moveTo(WALL, FIELD.top).lineTo(WALL, DESIGN.height).stroke(edge);
@@ -378,8 +477,6 @@ export class GameScene extends Scene {
     g.moveTo(FIELD.left, PADDLE.y + 26)
       .lineTo(FIELD.right, PADDLE.y + 26)
       .stroke({ width: 1, color: 0xff4d5a, alpha: 0.16 });
-
-    this.gameContainer.addChild(g);
   }
 
   /**
@@ -1890,22 +1987,23 @@ export class GameScene extends Scene {
    * in sync, not any bookkeeping between them.
    */
   _buildPauseButton() {
-    const cx = 450;
-    const cy = HUD_H / 2;
-    const hitW = 44;
-    const hitH = HUD_H;
-
-    const btn = new Sprite(TEX.pauseIcon);
-    btn.anchor.set(0.5);
-    btn.width = 22;
-    btn.height = 22;
-    btn.position.set(cx, cy);
+    // The interactive object is this unscaled Container, with the icon as its
+    // child, because `hitArea` is measured in the object's own local space —
+    // i.e. before its scale is applied. pause.png is 1254px square squeezed
+    // down to 22px, a scale of ~0.0175, so a hitArea set directly on the
+    // Sprite covered well under one screen pixel: impossible to hit with a
+    // mouse and pure luck with a thumb. Hanging the hit test on an unscaled
+    // parent keeps the geometry in design pixels, where it means what it says.
+    const btn = new Container();
     btn.eventMode = 'static';
     btn.cursor = 'pointer';
-    // Generously larger than the icon itself — a thumb is not a mouse
-    // pointer, and this is the one control on screen with no room to grow
-    // its own art to match.
-    btn.hitArea = new Rectangle(-hitW / 2, -hitH / 2, hitW, hitH);
+
+    const icon = new Sprite(TEX.pauseIcon);
+    icon.anchor.set(0.5);
+    // The parent owns the whole hit rect; a hittable child would narrow it
+    // back down to the icon's own bounds.
+    icon.eventMode = 'none';
+    btn.addChild(icon);
     // `pointerdown`, not `pointertap` — instant on both mouse and touch, no
     // down/up gesture to resolve first. Stopping propagation on the Pixi
     // event AND its native event is what actually matters here: without it,
@@ -1922,14 +2020,96 @@ export class GameScene extends Scene {
     });
 
     this.pauseButton = btn;
+    this.pauseIcon = icon;
     this.view.addChild(btn);
+    this._placePauseButton();
+  }
+
+  /**
+   * Size and seat the pause toggle from the HUD's own metrics.
+   *
+   * Read off `Hud.pauseSlot` rather than kept here so the glyph and the lane
+   * the level label keeps clear for it cannot drift apart — the bar's three
+   * regions all grow with HUD.scale and the toggle sits in the gap between
+   * two of them.
+   *
+   * THE TAP TARGET IS SIZED IN CSS PIXELS, NOT DESIGN PIXELS, which is why the
+   * viewport's scale is passed in. The glyph can only grow as far as the
+   * headroom above the board allows and a phone in landscape has none, so on
+   * that screen the icon stays small while the target it answers to does not.
+   */
+  _placePauseButton() {
+    const { x, y, size, hitW, hitH } = this.hud.pauseSlot(this.ctx.viewport.scale);
+
+    this.pauseButton.position.set(x, y);
+    this.pauseButton.hitArea = new Rectangle(-hitW / 2, -hitH / 2, hitW, hitH);
+    this.pauseIcon.width = size;
+    this.pauseIcon.height = size;
+  }
+
+  /**
+   * Where the serve prompt sits.
+   *
+   * At the frame height it stays at the authored y 300, over the nose, which is
+   * where it has always been. On a taller board there is an open lane between
+   * the maxillary floor and the paddle, and the prompt belongs in the middle of
+   * it, clear of both: it stops covering the congestion the player is about to
+   * aim at, and it stops sitting on the paddle.
+   *
+   * MEASURED FROM MAXILLARY_FLOOR, NOT FROM THE FRAME'S BOTTOM EDGE. Using
+   * y 480 as the top of the lane works only while the lane is long: at
+   * MAX_DESIGN_HEIGHT 560 the midpoint of 480..522 is y 501, and a 26px
+   * centre-anchored line there overlaps a paddle whose top edge is at 515.
+   */
+  _messageY() {
+    if (DESIGN.height <= DESIGN_FRAME.height) return 300;
+    return (MAXILLARY_FLOOR + PADDLE.y) / 2;
+  }
+
+  /**
+   * The board's floor moved — a phone was rotated, or a window was dragged
+   * into a taller shape. See SceneManager.resize.
+   *
+   * EVERYTHING TOUCHED HERE IS FLOOR-ANCHORED and nothing else is: the HUD,
+   * the brick field, the painted section, the corruption meter and the pause
+   * button all measure down from y 0 and are already correct. The balls and
+   * capsules in flight need no help either — they simply have further to fall,
+   * or, if the board shrank, they are already past the new floor and the next
+   * update loses them, which is why play stops below.
+   */
+  resize() {
+    this._drawFieldChrome();
+    this.hud.layout();
+    this._placePauseButton();
+    this.paddle.y = PADDLE.y;
+    this.message.y = this._messageY();
+
+    // Rebuilt rather than resized: the dim is a full-board rect and the menu
+    // is centred on the board, so both are wrong the moment the box changes.
+    if (this.paused && this.pauseLayer) {
+      this._destroyPauseMenu();
+      this._buildPauseMenu();
+      return;
+    }
+
+    // A rotation mid-rally is a lost ball otherwise — the board's floor can
+    // come up underneath a ball that was safely in flight a frame ago. Pausing
+    // hands the rally back to the player instead of taking a life for the
+    // gesture, and it is the same courtesy `visibilitychange` already extends
+    // to tabbing away.
+    if (this.state === 'play') this._setPaused(true);
   }
 
   _setPaused(on) {
     if (this.paused === on) return;
     this.paused = on;
     this.ctx.audio.setMuted(on);
-    this.pauseButton.texture = on ? TEX.continueIcon : TEX.pauseIcon;
+    this.pauseIcon.texture = on ? TEX.continueIcon : TEX.pauseIcon;
+    // Re-asserted after the swap: width/height on a Sprite are really a scale
+    // derived from the *current* texture, so a replacement of a different
+    // source size would otherwise resize the icon.
+    this.pauseIcon.width = this.hud.pauseSlot().size;
+    this.pauseIcon.height = this.hud.pauseSlot().size;
     this.ctx.input.suspended = on;
     // Reaching for "DEVAM ET" (or the corner icon) with a mouse leaves the
     // cursor sitting over that button, which is exactly where `suspended`
@@ -1956,16 +2136,20 @@ export class GameScene extends Scene {
     });
     this.pauseLayer.addChild(dim);
 
+    // The three y values below are authored against the 480-tall frame, where
+    // the 250px panel at y 110 lands centred. See frameDrop().
+    const drop = frameDrop();
+
     const box = panel(300, 250);
-    box.position.set((DESIGN.width - 300) / 2, 110);
+    box.position.set((DESIGN.width - 300) / 2, 110 + drop);
     this.pauseLayer.addChild(box);
 
     const title = makeText('DURAKLATILDI', { size: 30, anchor: 0.5, title: true });
-    title.position.set(DESIGN.width / 2, 152);
+    title.position.set(DESIGN.width / 2, 152 + drop);
     this.pauseLayer.addChild(title);
 
     const menu = new VerticalMenu(input, audio, { spacing: 50 });
-    menu.position.set((DESIGN.width - 240) / 2, 195);
+    menu.position.set((DESIGN.width - 240) / 2, 195 + drop);
 
     menu.add(
       new Button('DEVAM ET', () => this._setPaused(false), { width: 240 }),

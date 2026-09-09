@@ -1,6 +1,6 @@
 import { Container, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { BRICK_H, BRICK_W, COLORS, DESIGN } from '../game/config.js';
+import { BRICK_H, BRICK_W, COLORS, DESIGN, frameDrop } from '../game/config.js';
 import { TEX } from '../game/textures.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { LevelSelectScene } from './level-select-scene.js';
@@ -23,9 +23,17 @@ export class MenuScene extends Scene {
   enter() {
     this._buildBackdrop();
 
+    // Everything composed against the authored frame goes in here, so one
+    // container's y keeps the card centred on a portrait board. The brick rain
+    // behind it and the hint below it are deliberately outside: the rain fills
+    // the whole box and the hint is anchored to the floor.
+    this.content = new Container();
+    this.content.y = frameDrop();
+    this.view.addChild(this.content);
+
     const title = makeText('BRICKSTORM', { size: 46, anchor: 0.5, title: true, color: 0x35d0d8 });
     title.position.set(DESIGN.width / 2, 92);
-    this.view.addChild(title);
+    this.content.addChild(title);
     this.title = title;
 
     const tagline = makeText('KLASİK TARZDA BİR TUĞLA KIRMA OYUNU', {
@@ -34,7 +42,7 @@ export class MenuScene extends Scene {
       color: 0x6a7bb5,
     });
     tagline.position.set(DESIGN.width / 2, 128);
-    this.view.addChild(tagline);
+    this.content.addChild(tagline);
 
     const hint = makeText('OKLAR / FARE İLE GEZİN  -  SEÇMEK İÇİN ENTER', {
       size: 10,
@@ -42,10 +50,11 @@ export class MenuScene extends Scene {
       color: 0x4a5580,
     });
     hint.position.set(DESIGN.width / 2, DESIGN.height - 22);
+    this.hint = hint;
     this.view.addChild(hint);
 
     this.panelLayer = new Container();
-    this.view.addChild(this.panelLayer);
+    this.content.addChild(this.panelLayer);
 
     this._showMain();
     this._t = 0;
@@ -263,6 +272,16 @@ export class MenuScene extends Scene {
     // is remembered if audio has not been unlocked yet — so the menu theme
     // starts on the first gesture without any polling.
     this.ctx.audio.playMusic('menu');
+  }
+
+  /**
+   * The design box changed shape — see SceneManager.resize. Only the pieces
+   * measured from the board's floor need moving; everything laid out from the
+   * top is already where it belongs.
+   */
+  resize() {
+    this.content.y = frameDrop();
+    this.hint.y = DESIGN.height - 22;
   }
 
   update(dt) {

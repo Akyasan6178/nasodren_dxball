@@ -21,7 +21,9 @@ import {
   GLOW_REGIONS,
   GLOW_FOCI,
   rectInsideTract,
+  rectOnTractWall,
   strokeDistance,
+  tractWallDistance,
   tractMargin,
   insideGlow,
   insideTract,
@@ -75,13 +77,19 @@ for (const [i, level] of LEVELS.entries()) {
 // It has been negative in shipped code. Two bone caps in level 1 sat at
 // -1.17px, drawn overlapping the roof they were supposed to be under, while a
 // margin that counted only the nudge called them legal.
+//
+// BONE IS NOT MEASURED HERE, because overlapping a wall is bone's whole job:
+// it is the skeleton the air space is hollowed out of, so it is authored ON
+// the boundary and section 7 checks it against that instead. Feeding it to a
+// clearance floor would ask it to be two things at once, and the floor would
+// win — no cell in the grid both straddles a wall and clears it by 3px.
 const SHAPE_OF = { '<': 'halfLeft', '>': 'halfRight', o: 'small' };
 let tightest = { gap: Infinity };
 for (const [i, level] of LEVELS.entries()) {
   if (!level.cavity || level.boss) continue;
   level.rows.forEach((row, r) => {
     [...row].forEach((ch, c) => {
-      if (ch === '.') return;
+      if (ch === '.' || ch === 'B') return;
       const shape = SHAPE_OF[ch] ?? 'full';
       const box = BRICK.shapes[shape];
       const w = BRICK_W * box.w;
@@ -251,14 +259,23 @@ for (let r = 0; r < GRID.rows; r++) {
 // already broken.
 check(capacity >= 14, `the chambers can hold a layout (${capacity} positions usable by some shape)`);
 
-/* --- 7. where did the bone go? ----------------------------------------- */
+/* --- 7. is every bone cell ON a wall? ----------------------------------- */
 //
-// Bone is the one character validateLevels does not check, because a sinus is a
-// void in the facial skeleton and bone is correct on either side of the wall —
-// inside a chamber it obstructs the mucus, outside it is a fixed deflector in
-// open board. Untested is not the same as unwatched: a bone cell that was meant
-// for a cheekbone and landed half over a wall is exactly the kind of thing that
-// reads as a rendering fault, so each one is classified and printed.
+// THE POLARITY OF THIS CHECK IS INVERTED FROM WHAT IT USED TO BE, and that is
+// the point of it, so the old reasoning is left here to be argued with. Bone
+// was the one character validateLevels did not constrain, because a sinus is a
+// void in the facial skeleton and bone is arguably correct on either side of
+// the wall — inside a chamber it obstructs the mucus, outside it is a fixed
+// deflector in open board. This section classified each cell as inside,
+// outside or STRADDLING and FAILED on straddling, on the theory that a cell
+// half over a wall reads as a rendering fault.
+//
+// On screen it reads as the opposite. What looked broken was the placements
+// that passed: level 1's pair sat 56px clear of the wall out in bare navy
+// background, two arcade rectangles floating beside a painting of a face, and
+// level 4's pair floated in the middle of the maxillary air. Bone IS the wall,
+// so straddling one is the only placement that reads as anatomy, and it is now
+// the only placement this accepts. See rectOnTractWall in cavity.js.
 const boneReport = [];
 for (const [i, level] of LEVELS.entries()) {
   if (!level.cavity || level.boss) continue;
@@ -268,28 +285,55 @@ for (const [i, level] of LEVELS.entries()) {
     [...row].forEach((ch, c) => {
       if (ch !== 'B') return;
 
-      const [x0, y0, x1, y1] = cellBox(c, r, 'full');
-      let inside = 0;
-      let samples = 0;
-      for (let u = 0; u <= 8; u++) {
-        for (let v = 0; v <= 8; v++) {
-          samples++;
-          if (insideTract(x0 + ((x1 - x0) * u) / 8, y0 + ((y1 - y0) * v) / 8)) inside++;
-        }
-      }
-      placed.push({ r, c, where: inside === 0 ? 'outside' : inside === samples ? 'inside' : 'STRADDLING' });
+      const box = cellBox(c, r, 'full');
+      const cx = (box[0] + box[2]) / 2;
+      const cy = (box[1] + box[3]) / 2;
+      // Signed for the report only. The rule is rectOnTractWall's, and it does
+      // not care which side of the wall the centre happened to fall on; this
+      // number is here so a layout can see how squarely the wall crosses the
+      // cell, which is the part a screenshot answers slowly.
+      const offset = tractWallDistance(cx, cy) * (insideTract(cx, cy) ? -1 : 1);
+
+      placed.push({ r, c, offset, onWall: rectOnTractWall(...box) });
     });
   });
 
   if (!placed.length) continue;
-  const straddling = placed.filter((p) => p.where === 'STRADDLING');
+
+  const describe = (p) =>
+    `r${p.r}c${p.c} ${p.onWall ? 'on wall' : 'OFF WALL'} ` +
+    `(${p.offset >= 0 ? '+' : ''}${p.offset.toFixed(1)}px)`;
+
   check(
-    straddling.length === 0,
-    `level ${i + 1} "${level.name}" bone is cleanly placed ` +
-      `(${placed.map((p) => `r${p.r}c${p.c} ${p.where}`).join(', ')})`,
+    placed.every((p) => p.onWall),
+    `level ${i + 1} "${level.name}" bone sits on a chamber wall ` +
+      `(${placed.map(describe).join(', ')})`,
   );
-  boneReport.push(`  level ${i + 1} "${level.name}": ${placed.map((p) => `r${p.r}c${p.c} ${p.where}`).join(', ')}`);
+  boneReport.push(`  level ${i + 1} "${level.name}": ${placed.map(describe).join(', ')}`);
 }
+
+/* --- 8. and where COULD the bone go? ------------------------------------ */
+//
+// The companion to the capacity map in section 6. Bone reads off its own map,
+// because it wants the wall rather than the air, and that map changes every
+// time anatomy.js is retraced — so a layout that has to move a bone cell needs
+// to be able to see where the walls currently cross the grid.
+let boneCapacity = 0;
+const boneMap = [];
+for (let r = 0; r < GRID.rows; r++) {
+  let line = String(r).padStart(2) + '  ';
+  for (let c = 0; c < GRID.cols; c++) {
+    const ok = rectOnTractWall(...cellBox(c, r, 'full'));
+    if (ok) boneCapacity++;
+    line += ok ? ' B ' : ' . ';
+  }
+  boneMap.push(line);
+}
+// Eleven a side is what the retraced painting offers and the levels use six of
+// them, so this floor is a smoke alarm rather than a target: if it falls to
+// roughly the number the authored positions occupy, the walls have moved under
+// those positions and every bone cell wants looking at by eye.
+check(boneCapacity >= 12, `the walls can hold the bone (${boneCapacity} positions)`);
 
 /* --- plan view ---------------------------------------------------------- */
 const W = 92;
@@ -338,8 +382,12 @@ console.log('     ' + Array.from({ length: GRID.cols }, (_, c) => String(c).padS
 console.log(map.join('\n'));
 
 if (boneReport.length) {
-  console.log('\n  Bone placement — the one character containment does not constrain\n');
+  console.log('\n  Bone placement — every cell must straddle a chamber wall\n');
   console.log(boneReport.join('\n'));
+
+  console.log('\n  Cells bone may occupy — B where a chamber wall crosses the cell\n');
+  console.log('     ' + Array.from({ length: GRID.cols }, (_, c) => String(c).padStart(3)).join(''));
+  console.log(boneMap.join('\n'));
 }
 
 console.log('\n' + notes.map((n) => '  ' + n).join('\n'));

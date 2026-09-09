@@ -1,6 +1,6 @@
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { DESIGN, RUN } from '../game/config.js';
+import { DESIGN, frameDrop, RUN } from '../game/config.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { LevelSelectScene } from './level-select-scene.js';
 import { ReviveScene } from './revive-scene.js';
@@ -30,7 +30,15 @@ export class ResultsScene extends Scene {
     const { input, audio } = this.ctx;
 
     const dim = new Graphics().rect(0, 0, DESIGN.width, DESIGN.height).fill(0x07070f);
+    this.dim = dim;
     this.view.addChild(dim);
+
+    // The card is composed against the authored frame; this keeps it centred
+    // on a portrait board. See frameDrop(). The blackout stays outside it —
+    // that one covers the whole box, whatever shape the box is.
+    this.content = new Container();
+    this.content.y = frameDrop();
+    this.view.addChild(this.content);
 
     const heading = makeText(won ? 'KAZANDIN' : 'OYUN BİTTİ', {
       size: 44,
@@ -39,15 +47,15 @@ export class ResultsScene extends Scene {
       color: won ? 0xffd23f : 0xff4d5a,
     });
     heading.position.set(DESIGN.width / 2, 96);
-    this.view.addChild(heading);
+    this.content.addChild(heading);
 
     const box = panel(340, 108);
     box.position.set((DESIGN.width - 340) / 2, 140);
-    this.view.addChild(box);
+    this.content.addChild(box);
 
     const scoreLabel = makeText('SONUÇ SKORU', { size: 11, anchor: 0.5, color: 0x6a7bb5 });
     scoreLabel.position.set(DESIGN.width / 2, 156);
-    this.view.addChild(scoreLabel);
+    this.content.addChild(scoreLabel);
 
     const scoreValue = makeText(String(score).padStart(6, '0'), {
       size: 34,
@@ -56,14 +64,14 @@ export class ResultsScene extends Scene {
       title: true,
     });
     scoreValue.position.set(DESIGN.width / 2, 190);
-    this.view.addChild(scoreValue);
+    this.content.addChild(scoreValue);
 
     const reached = makeText(
       won ? 'TÜM BÖLÜMLER TAMAMLANDI' : `ULAŞILAN BÖLÜM ${level}`,
       { size: 11, anchor: 0.5, color: 0x9fb0e0 },
     );
     reached.position.set(DESIGN.width / 2, 228);
-    this.view.addChild(reached);
+    this.content.addChild(reached);
 
     if (this.entering) {
       const prompt = makeText('YENİ YÜKSEK SKOR - ADINI YAZ, KAYDETMEK İÇİN ENTER', {
@@ -72,11 +80,11 @@ export class ResultsScene extends Scene {
         color: 0x86e05a,
       });
       prompt.position.set(DESIGN.width / 2, 268);
-      this.view.addChild(prompt);
+      this.content.addChild(prompt);
 
       this.nameText = makeText('_', { size: 26, anchor: 0.5, color: 0xffffff });
       this.nameText.position.set(DESIGN.width / 2, 300);
-      this.view.addChild(this.nameText);
+      this.content.addChild(this.nameText);
 
       this._offKey = input.onKey((e) => this._onKey(e));
     }
@@ -91,7 +99,7 @@ export class ResultsScene extends Scene {
     // bottom edge when high-score name entry is also showing.
     this.menu = new VerticalMenu(input, audio, { spacing: showRevive ? 44 : 48 });
     this.menu.position.set((DESIGN.width - 260) / 2, this.entering ? 340 : 300);
-    this.view.addChild(this.menu);
+    this.content.addChild(this.menu);
 
     if (showRevive) {
       this.menu.add(
@@ -144,6 +152,17 @@ export class ResultsScene extends Scene {
   }
 
   /** Idempotent: safe to call from several exit paths. */
+  /**
+   * The design box changed shape — see SceneManager.resize. Only the pieces
+   * measured from the board's floor need moving; everything laid out from the
+   * top is already where it belongs.
+   */
+  resize() {
+    // A full-board blackout, so it has to be re-cut rather than repositioned.
+    this.dim.clear().rect(0, 0, DESIGN.width, DESIGN.height).fill(0x07070f);
+    this.content.y = frameDrop();
+  }
+
   _commit() {
     if (!this.entering || this.submitted) return;
     this.submitted = true;

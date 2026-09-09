@@ -104,6 +104,7 @@ export class TransitionScene extends Scene {
     sprite.anchor.set(0.5);
     sprite.scale.set(CENTER_SIZE / sprite.texture.width);
     sprite.position.set(DESIGN.width / 2, DESIGN.height / 2);
+    this.art = sprite;
     this.view.addChild(sprite);
 
     this.asset = sprite;
@@ -114,6 +115,7 @@ export class TransitionScene extends Scene {
     const text = heavyText('Yükleniyor', { size: 22, color: 0xffffff, align: 'center' });
     text.anchor.set(0.5);
     text.position.set(DESIGN.width / 2, DESIGN.height - 26);
+    this.caption = text;
     this.view.addChild(text);
     this.loadingText = text;
   }
@@ -135,6 +137,18 @@ export class TransitionScene extends Scene {
     body.anchor.set(1, 0);
     body.position.set(DESIGN.width - TIP_RIGHT_MARGIN, TIP_BODY_Y);
     this.view.addChild(body);
+  }
+
+  /**
+   * The design box changed shape — see SceneManager.resize. Only the pieces
+   * measured from the board's floor need moving; everything laid out from the
+   * top is already where it belongs.
+   */
+  resize() {
+    // Both re-read rather than one: the art is centred on the box, so it moves
+    // with the floor even though it is not anchored to it.
+    this.art.y = DESIGN.height / 2;
+    this.caption.y = DESIGN.height - 26;
   }
 
   update(dt) {

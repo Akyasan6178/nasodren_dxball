@@ -36,8 +36,7 @@
 
       /* Every HTML overlay starts hidden and is revealed by main.js once the
          renderer has painted its first frame. */
-      #ui-layer,
-      .rotate {
+      #ui-layer {
         display: none;
       }
 
@@ -84,23 +83,6 @@
           <span class="mode__option" data-mode="turbo">Turbo</span>
         </span>
       </button>
-    </div>
-
-    <!-- Shown only on touch devices held in a tall portrait aspect, and only
-         once ready. Pure CSS, no JS. Delete the .rotate block in style.css to
-         disable. The explicit width/height matter: an inline SVG with only a
-         viewBox stretches to its container and fills with default black if the
-         stylesheet has not arrived yet. -->
-    <div class="rotate" role="status">
-      <div class="rotate__icon" aria-hidden="true">
-        <svg width="54" height="54" viewBox="0 0 48 48" fill="none">
-          <rect x="14" y="4" width="20" height="40" rx="4" />
-          <path d="M6 30a18 18 0 0 0 8 11" />
-          <path d="M42 18a18 18 0 0 0-8-11" />
-        </svg>
-      </div>
-      <p class="rotate__text">Rotate your device</p>
-      <p class="rotate__sub">Brickstorm plays in landscape</p>
     </div>
 
     <div id="boot" role="status">Loading&hellip;</div>

@@ -19,6 +19,19 @@ export class Scene {
 
   /** Called before the view is unmounted. Release listeners here. */
   exit() {}
+
+  /**
+   * Called when the design box changes shape — see Viewport.layout.
+   *
+   * Only a scene with something anchored to the board's FLOOR needs to
+   * implement it. A scene built entirely from the top down is already correct
+   * without it, because `DESIGN.height` is resolved before any scene is
+   * constructed, so a scene that reads it at build time reads the right value.
+   *
+   * DO NOT REBUILD THE SCENE HERE. This fires mid-rally when a phone is
+   * rotated, and a rebuilt GameScene is a restarted level.
+   */
+  resize() {}
 }
 
 export class SceneManager {
@@ -67,5 +80,16 @@ export class SceneManager {
   update(dt) {
     this._applyPending();
     this.current?.update(dt);
+  }
+
+  /**
+   * Forward a design-box change to the live scene.
+   *
+   * Routed through here rather than wired straight from the Viewport to the
+   * scene, so a scene swap in flight cannot deliver a resize to a scene that
+   * has already been torn down.
+   */
+  resize() {
+    this.current?.resize();
   }
 }

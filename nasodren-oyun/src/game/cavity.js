@@ -245,33 +245,67 @@ export function insideGlow(x, y) {
   return false;
 }
 
+/**
+ * Distance from a point to a polyline.
+ *
+ * Closed rings need the edge from the last point back to the first, which is
+ * not in the point list. Walking `i` to `length - 1` and pairing with
+ * `i + 1` silently skips it, and on a traced ring that edge can be the long
+ * one — the trace starts at the topmost-leftmost pixel, so the seam sits in
+ * the middle of a wall rather than at a corner.
+ */
+function polylineDistance(x, y, points, closed) {
+  const n = points.length;
+  const last = closed ? n : n - 1;
+  let best = Infinity;
+
+  for (let i = 0; i < last; i++) {
+    const [ax, ay] = points[i];
+    const [bx, by] = points[(i + 1) % n];
+
+    const ex = bx - ax;
+    const ey = by - ay;
+    const len2 = ex * ex + ey * ey;
+
+    let t = len2 ? ((x - ax) * ex + (y - ay) * ey) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+
+    const d = Math.hypot(x - (ax + ex * t), y - (ay + ey * t));
+    if (d < best) best = d;
+  }
+
+  return best;
+}
+
 /** Distance from a point to the nearest stroke's surface. Negative inside it. */
 export function strokeDistance(x, y) {
   let best = Infinity;
 
   for (const s of NOSE_STROKES) {
-    // Closed rings need the edge from the last point back to the first, which
-    // is not in the point list. Walking `i` to `length - 1` and pairing with
-    // `i + 1` silently skips it, and on a traced ring that edge can be the
-    // long one — the trace starts at the topmost-leftmost pixel, so the seam
-    // sits in the middle of a wall rather than at a corner.
-    const n = s.points.length;
-    const last = s.closed ? n : n - 1;
+    const d = polylineDistance(x, y, s.points, s.closed) - s.radius;
+    if (d < best) best = d;
+  }
 
-    for (let i = 0; i < last; i++) {
-      const [ax, ay] = s.points[i];
-      const [bx, by] = s.points[(i + 1) % n];
+  return best;
+}
 
-      const ex = bx - ax;
-      const ey = by - ay;
-      const len2 = ex * ex + ey * ey;
+/**
+ * Distance from a point to the nearest CHAMBER wall, ignoring every other
+ * stroke in the drawing.
+ *
+ * Unsigned, and separate from `strokeDistance` on purpose. That one answers
+ * "how far is the nearest thing in the painting", which for a point beside the
+ * ethmoid is an ethmoid cell — scenery, and not a wall a brick is measured
+ * against. This one answers "how far is the boundary of a region congestion
+ * may occupy", which is the only wall `rectOnTractWall` has any business
+ * snapping bone to.
+ */
+export function tractWallDistance(x, y) {
+  let best = Infinity;
 
-      let t = len2 ? ((x - ax) * ex + (y - ay) * ey) / len2 : 0;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-
-      const d = Math.hypot(x - (ax + ex * t), y - (ay + ey * t)) - s.radius;
-      if (d < best) best = d;
-    }
+  for (const poly of BRICK_TRACTS) {
+    const d = polylineDistance(x, y, poly, true);
+    if (d < best) best = d;
   }
 
   return best;
@@ -326,4 +360,53 @@ export function rectInsideTract(x0, y0, x1, y1, margin = 0) {
  */
 export function tractMargin(w, h) {
   return BRICK.scatter + (Math.hypot(w, h) / 2) * Math.sin(BRICK.tilt) + BRICK.clearance;
+}
+
+/**
+ * Does a chamber wall run through this rectangle, and through the middle of it?
+ *
+ * THE BONE RULE, and it is the mirror image of `rectInsideTract` rather than
+ * an exception to it. Mucus is congestion, so it belongs in the air space and
+ * has to sit wholly inside a chamber. Bone is the facial skeleton that air
+ * space is hollowed out of, so it belongs ON the boundary — which is the one
+ * place nothing ever put it. Bone used to be exempt from containment
+ * altogether, and what that exemption bought was level 1's two cells sitting
+ * 56px out in bare navy beside the nose and level 4's two floating in the
+ * middle of the maxillary air, both passing validation while doing it.
+ *
+ * TWO CONDITIONS, because the crossing test alone is not enough.
+ *
+ *   The wall must cross the box. Sampled on a lattice sized to the box, the
+ *   same way `rectInsideTract` samples and for the same reason: a pinch in a
+ *   traced ring is narrow enough to pass between two samples of a fixed grid.
+ *
+ *   The crossing must happen near the middle of the cell rather than nicking
+ *   a corner. A box whose corner clips the wall by a pixel is not on the wall,
+ *   it is beside it, and it reads that way on screen. The tolerance is half
+ *   the box's shorter side, so it scales with the grid rather than being a
+ *   number someone picked — on a full 46x18 cell that is 9px, and every
+ *   position it admits has the wall running through the cell's middle band.
+ *
+ * Measured against `tractWallDistance`, not `strokeDistance`: the ethmoid
+ * cells are scenery, and bone hung on one of those is not bone on a sinus.
+ */
+export function rectOnTractWall(x0, y0, x1, y1) {
+  const steps = Math.max(4, Math.ceil(Math.max(x1 - x0, y1 - y0) / 3));
+  let inside = 0;
+  let outside = 0;
+
+  for (let i = 0; i <= steps; i++) {
+    for (let j = 0; j <= steps; j++) {
+      const x = x0 + ((x1 - x0) * i) / steps;
+      const y = y0 + ((y1 - y0) * j) / steps;
+
+      if (insideTract(x, y)) inside++;
+      else outside++;
+    }
+  }
+
+  if (!inside || !outside) return false;
+
+  const tolerance = Math.min(x1 - x0, y1 - y0) / 2;
+  return tractWallDistance((x0 + x1) / 2, (y0 + y1) / 2) <= tolerance;
 }

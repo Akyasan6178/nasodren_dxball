@@ -188,68 +188,27 @@ body[data-scene="menu"] .mode {
   border-color: rgba(255, 210, 63, 0.5);
 }
 
-/* ================================================== rotate prompt ======= */
+/* =============================================== portrait / rotation ==== */
 
-/* The board is 4:3. On a phone held upright the letterboxed playfield collapses
-   to roughly a third of the screen, which is unplayable, so ask for landscape
-   instead of shipping a bad experience. Touch devices only: `pointer: coarse`
-   keeps it away from narrow desktop windows. */
-.rotate {
-  display: none;
-}
+/* THERE IS NO ROTATE PROMPT ANY MORE, and the reason it existed is worth
+   keeping: the board was a fixed 4:3, so on a phone held upright the
+   letterboxed playfield collapsed to roughly a third of the screen, and asking
+   for landscape beat shipping that. The board's height now follows the screen
+   instead — see resolveDesignHeight in game/config.js — so upright is a
+   supported way to hold the game rather than a state to be escaped, and a card
+   covering the whole viewport would be hiding a playable board.
 
-@media (max-aspect-ratio: 3 / 4) and (pointer: coarse) {
-  body.is-ready .rotate {
-    position: fixed;
-    inset: 0;
-    z-index: 5;
+   The markup went with it. If a prompt is ever wanted again, it belongs behind
+   a much narrower condition than "portrait" — something like an aspect so
+   extreme that even the adaptive box cannot make the board useful. */
 
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 16px;
-    padding: 32px;
-
-    background: var(--bg);
-    text-align: center;
-  }
-}
-
-.rotate__icon svg {
-  width: 54px;
-  height: 54px;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  animation: tilt 2.4s var(--ease) infinite;
-}
-
-@keyframes tilt {
-  0%,
-  55%,
-  100% {
-    transform: rotate(0deg);
-  }
-  25%,
-  40% {
-    transform: rotate(-90deg);
-  }
-}
-
-.rotate__text {
-  margin: 0;
-  font-size: 15px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.rotate__sub {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--ink-dim);
+/* Safe-area padding for the notch. The canvas itself is full-bleed by design
+   (viewport-fit=cover in index.html), and Viewport keeps a quarter of the
+   spare vertical space above the board precisely so the HUD clears a notch, so
+   this only has to keep the HTML overlay off it. */
+.ui-layer {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ============================================================= boot ===== */
