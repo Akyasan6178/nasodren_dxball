@@ -21,8 +21,8 @@ export class Ball extends Container {
     this.glow = new Sprite(TEX.glow);
     this.glow.anchor.set(0.5);
     this.glow.blendMode = 'add';
-    this.glow.alpha = 0.5;
-    this.glow.scale.set(0.42);
+    this.glow.alpha = 0.3;
+    this.glow.scale.set(0.32);
     this.addChild(this.glow);
 
     this.body = new Sprite(TEX.cyclamenBall);
@@ -174,8 +174,12 @@ export class Ball extends Container {
     this._setSkin(tint !== NORMAL_TINT);
     this.body.tint = tint;
     this.glow.tint = tint;
-    this.glow.alpha = this.fire ? 0.95 : this.through ? 0.7 : 0.5;
-    this.glow.scale.set(this.fire ? 0.62 : 0.42);
+    // Normal-state glow is deliberately subdued — a hint of light around the
+    // flower rather than a halo that competes with it. Fire/Through stay
+    // louder: those are active power-up states and are supposed to announce
+    // themselves.
+    this.glow.alpha = this.fire ? 0.95 : this.through ? 0.7 : 0.3;
+    this.glow.scale.set(this.fire ? 0.62 : this.through ? 0.42 : 0.32);
   }
 
   /**

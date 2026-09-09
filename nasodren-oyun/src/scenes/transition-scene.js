@@ -111,7 +111,7 @@ export class TransitionScene extends Scene {
   }
 
   _buildLoadingText() {
-    const text = heavyText('Loading', { size: 22, color: 0xffffff, align: 'center' });
+    const text = heavyText('Yükleniyor', { size: 22, color: 0xffffff, align: 'center' });
     text.anchor.set(0.5);
     text.position.set(DESIGN.width / 2, DESIGN.height - 26);
     this.view.addChild(text);
@@ -121,7 +121,7 @@ export class TransitionScene extends Scene {
   _buildTip() {
     const tip = TIPS[Math.floor(cosmeticRandom() * TIPS.length)];
 
-    const title = heavyText('TIP:', { size: 14, color: 0x35d0d8 });
+    const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8 });
     title.anchor.set(1, 0);
     title.position.set(DESIGN.width - TIP_RIGHT_MARGIN, TIP_TITLE_Y);
     this.view.addChild(title);
@@ -146,7 +146,7 @@ export class TransitionScene extends Scene {
     while (this._dotTimer >= DOT_INTERVAL) {
       this._dotTimer -= DOT_INTERVAL;
       this._dotCount = (this._dotCount + 1) % (MAX_DOTS + 1);
-      this.loadingText.text = 'Loading' + '.'.repeat(this._dotCount);
+      this.loadingText.text = 'Yükleniyor' + '.'.repeat(this._dotCount);
     }
 
     if (this._elapsed >= HOLD_SECONDS) {

@@ -1,13 +1,13 @@
 import { Container, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { COLORS, DESIGN } from '../game/config.js';
+import { BRICK_H, BRICK_W, COLORS, DESIGN } from '../game/config.js';
 import { TEX } from '../game/textures.js';
 import { Button, VerticalMenu, makeText, panel } from '../game/ui.js';
 import { LevelSelectScene } from './level-select-scene.js';
 import { GameScene } from './game-scene.js';
 import { TransitionScene } from './transition-scene.js';
 
-const CONTROL_LABELS = { both: 'MOUSE + KEYS', pointer: 'MOUSE / TOUCH', keys: 'KEYBOARD' };
+const CONTROL_LABELS = { both: 'FARE + TUŞLAR', pointer: 'FARE / DOKUNMATİK', keys: 'KLAVYE' };
 const CONTROL_ORDER = ['both', 'pointer', 'keys'];
 
 /**
@@ -28,7 +28,7 @@ export class MenuScene extends Scene {
     this.view.addChild(title);
     this.title = title;
 
-    const tagline = makeText('A BRICK-BREAKER IN THE CLASSIC STYLE', {
+    const tagline = makeText('KLASİK TARZDA BİR TUĞLA KIRMA OYUNU', {
       size: 11,
       anchor: 0.5,
       color: 0x6a7bb5,
@@ -36,7 +36,7 @@ export class MenuScene extends Scene {
     tagline.position.set(DESIGN.width / 2, 128);
     this.view.addChild(tagline);
 
-    const hint = makeText('ARROWS / MOUSE TO NAVIGATE  -  ENTER TO SELECT', {
+    const hint = makeText('OKLAR / FARE İLE GEZİN  -  SEÇMEK İÇİN ENTER', {
       size: 10,
       anchor: 0.5,
       color: 0x4a5580,
@@ -51,19 +51,36 @@ export class MenuScene extends Scene {
     this._t = 0;
   }
 
-  /** Slowly drifting bricks — cheap motion that sets the tone. */
+  /**
+   * Brick rain: a slow, faint fall of tier bricks and bone behind everything
+   * else, each looping back to the top once it drops off the bottom.
+   *
+   * Was `TEX[brick${i % COLORS.length}]` — a full-cell colour key that
+   * stopped existing the moment the HP-tier art took over full cells (see
+   * textureKeyFor in textures.js); every sprite here was silently rendering
+   * `Texture.EMPTY`. Fixed by drawing from the same tier/bone atlas the real
+   * board uses now.
+   */
   _buildBackdrop() {
     const layer = new Container();
     layer.eventMode = 'none';
     layer.interactiveChildren = false;
     this.drifters = [];
 
+    const TIER_TEX = [TEX.brickTier1, TEX.brickTier2, TEX.brickTier3];
+
     for (let i = 0; i < 26; i++) {
-      const sprite = new Sprite(TEX[`brick${i % COLORS.length}`]);
+      const isBone = Math.random() < 0.18;
+      const sprite = new Sprite(isBone ? TEX.brickBone : TIER_TEX[Math.floor(Math.random() * TIER_TEX.length)]);
+      sprite.anchor.set(0.5);
+      sprite.width = BRICK_W;
+      sprite.height = BRICK_H;
+      if (!isBone) sprite.tint = COLORS[Math.floor(Math.random() * COLORS.length)];
+      sprite.rotation = (Math.random() - 0.5) * 0.3;
       sprite.x = Math.random() * DESIGN.width;
       sprite.y = Math.random() * DESIGN.height;
-      sprite.alpha = 0.07 + Math.random() * 0.06;
-      sprite.speed = 8 + Math.random() * 18;
+      sprite.alpha = 0.07 + Math.random() * 0.08;
+      sprite.speed = 8 + Math.random() * 22;
       layer.addChild(sprite);
       this.drifters.push(sprite);
     }
@@ -89,7 +106,7 @@ export class MenuScene extends Scene {
       const menu = this._menu(168);
 
       menu.add(
-        new Button('START GAME', () => {
+        new Button('OYUNU BAŞLAT', () => {
           audio.unlock();
           audio.uiClick();
           sm.change(TransitionScene, { next: GameScene, params: { levelIndex: 0 } });
@@ -97,7 +114,7 @@ export class MenuScene extends Scene {
       );
 
       menu.add(
-        new Button('LEVEL SELECT', () => {
+        new Button('BÖLÜM SEÇ', () => {
           audio.unlock();
           audio.uiClick();
           sm.change(LevelSelectScene, {});
@@ -105,7 +122,7 @@ export class MenuScene extends Scene {
       );
 
       menu.add(
-        new Button('OPTIONS', () => {
+        new Button('AYARLAR', () => {
           audio.unlock();
           audio.uiClick();
           this._showOptions();
@@ -113,7 +130,7 @@ export class MenuScene extends Scene {
       );
 
       menu.add(
-        new Button('HIGH SCORES', () => {
+        new Button('YÜKSEK SKORLAR', () => {
           audio.unlock();
           audio.uiClick();
           this._showScores();
@@ -122,7 +139,7 @@ export class MenuScene extends Scene {
 
       const best = save.highScores[0];
       if (best) {
-        const label = makeText(`BEST  ${String(best.score).padStart(6, '0')}  ${best.name}`, {
+        const label = makeText(`EN İYİ  ${String(best.score).padStart(6, '0')}  ${best.name}`, {
           size: 12,
           anchor: 0.5,
           color: 0xffd23f,
@@ -142,7 +159,7 @@ export class MenuScene extends Scene {
       box.position.set((DESIGN.width - 360) / 2, 158);
       this.panelLayer.addChild(box);
 
-      const heading = makeText('OPTIONS', { size: 18, anchor: 0.5 });
+      const heading = makeText('AYARLAR', { size: 18, anchor: 0.5 });
       heading.position.set(DESIGN.width / 2, 178);
       this.panelLayer.addChild(heading);
 
@@ -152,9 +169,9 @@ export class MenuScene extends Scene {
         audio.setSfxEnabled(!settings.sfx);
         save.flush();
         audio.uiClick();
-        sfxBtn.setLabel(`SOUND EFFECTS   ${settings.sfx ? 'ON' : 'OFF'}`);
+        sfxBtn.setLabel(`SES EFEKTLERİ   ${settings.sfx ? 'AÇIK' : 'KAPALI'}`);
       });
-      sfxBtn.setLabel(`SOUND EFFECTS   ${settings.sfx ? 'ON' : 'OFF'}`);
+      sfxBtn.setLabel(`SES EFEKTLERİ   ${settings.sfx ? 'AÇIK' : 'KAPALI'}`);
       menu.add(sfxBtn);
 
       const musicBtn = new Button('', () => {
@@ -162,9 +179,9 @@ export class MenuScene extends Scene {
         audio.setMusicEnabled(!settings.music);
         save.flush();
         audio.uiClick();
-        musicBtn.setLabel(`MUSIC           ${settings.music ? 'ON' : 'OFF'}`);
+        musicBtn.setLabel(`MÜZİK           ${settings.music ? 'AÇIK' : 'KAPALI'}`);
       });
-      musicBtn.setLabel(`MUSIC           ${settings.music ? 'ON' : 'OFF'}`);
+      musicBtn.setLabel(`MÜZİK           ${settings.music ? 'AÇIK' : 'KAPALI'}`);
       menu.add(musicBtn);
 
       const controlBtn = new Button('', () => {
@@ -172,13 +189,13 @@ export class MenuScene extends Scene {
         settings.control = CONTROL_ORDER[next];
         save.flush();
         audio.uiClick();
-        controlBtn.setLabel(`CONTROL   ${CONTROL_LABELS[settings.control]}`);
+        controlBtn.setLabel(`KONTROL   ${CONTROL_LABELS[settings.control]}`);
       });
-      controlBtn.setLabel(`CONTROL   ${CONTROL_LABELS[settings.control]}`);
+      controlBtn.setLabel(`KONTROL   ${CONTROL_LABELS[settings.control]}`);
       menu.add(controlBtn);
 
       menu.add(
-        new Button('BACK', () => {
+        new Button('GERİ', () => {
           audio.uiClick();
           this._showMain();
         }, { accent: 0xff4d5a }),
@@ -194,14 +211,14 @@ export class MenuScene extends Scene {
       box.position.set((DESIGN.width - 380) / 2, 152);
       this.panelLayer.addChild(box);
 
-      const heading = makeText('HIGH SCORES', { size: 18, anchor: 0.5 });
+      const heading = makeText('YÜKSEK SKORLAR', { size: 18, anchor: 0.5 });
       heading.position.set(DESIGN.width / 2, 172);
       this.panelLayer.addChild(heading);
 
       const scores = save.highScores;
 
       if (!scores.length) {
-        const empty = makeText('NO SCORES YET - GO SET ONE', {
+        const empty = makeText('HENÜZ SKOR YOK - İLK SKORU SEN YAP', {
           size: 12,
           anchor: 0.5,
           color: 0x6a7bb5,
@@ -224,7 +241,7 @@ export class MenuScene extends Scene {
           });
           score.position.set(452, y);
 
-          const lvl = makeText(`L${entry.level}`, { size: 11, color: 0x4a5580, anchor: [1, 0] });
+          const lvl = makeText(`B${entry.level}`, { size: 11, color: 0x4a5580, anchor: [1, 0] });
           lvl.position.set(492, y + 1);
 
           this.panelLayer.addChild(rank, name, score, lvl);
@@ -233,7 +250,7 @@ export class MenuScene extends Scene {
 
       const menu = this._menu(400, 46);
       menu.add(
-        new Button('BACK', () => {
+        new Button('GERİ', () => {
           audio.uiClick();
           this._showMain();
         }, { accent: 0xff4d5a }),

@@ -43,6 +43,19 @@ export class Input {
     this._anchor = null;
     this._bound = [];
 
+    /**
+     * Set by the scene while a modal (the pause menu) is on screen.
+     *
+     * Mouse control is absolute — the paddle tracks wherever the cursor is,
+     * even hovering, not just while a button is held — which is exactly right
+     * during play but means reaching for an on-screen button (the pause icon,
+     * "DEVAM ET", ...) quietly drags the control target there too. That sits
+     * harmless while paused (gameplay reads nothing), then snaps the paddle
+     * toward the button the instant play resumes. Suspending here stops that
+     * drift at the source instead of chasing it after the fact.
+     */
+    this.suspended = false;
+
     this._bind();
   }
 
@@ -86,7 +99,7 @@ export class Input {
      * a centimetre of paddle travel however the board is currently scaled.
      */
     const down = (e) => {
-      if (this._isUi(e)) return;
+      if (this._isUi(e) || this.suspended) return;
 
       const p = this._screenPoint(e);
       if (!p) return;
@@ -108,6 +121,7 @@ export class Input {
     };
 
     const move = (e) => {
+      if (this.suspended) return;
       if (this._isUi(e) && !this.pointer.down) return;
 
       const p = this._screenPoint(e);

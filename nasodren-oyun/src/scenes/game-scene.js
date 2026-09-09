@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite } from 'pixi.js';
+import { Container, Graphics, Rectangle, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { cosmeticSigned } from '../core/rng.js';
 import { Scene } from '../core/scene-manager.js';
@@ -8,6 +8,8 @@ import {
   CAVITY,
   CORRUPTION,
   DESIGN,
+  difficultyControlScale,
+  difficultySpeedScale,
   FIELD,
   HUD_H,
   LASER,
@@ -84,6 +86,16 @@ export class GameScene extends Scene {
      * a boolean read instead of a config lookup.
      */
     this.trialMechanics = TRIAL.levelIndex === null || this.levelIndex === TRIAL.levelIndex;
+
+    /**
+     * Progressive difficulty — see DIFFICULTY in config.js. Resolved once,
+     * here, for the same reason `trialMechanics` is: `levelIndex` cannot
+     * change while this scene is alive, so every frame that reads it (ball
+     * speed every substep, paddle English on every bounce) gets a plain
+     * number instead of recomputing a power/clamp each time.
+     */
+    this._speedScale = difficultySpeedScale(this.levelIndex);
+    this._controlScale = difficultyControlScale(this.levelIndex);
 
     /**
      * Capsules folded into this level's drop roll on top of the global table.
@@ -204,6 +216,8 @@ export class GameScene extends Scene {
     this.remainingBricks = { ...this.initialBrickCount };
     this._lastRemaining = this.brickField.remaining;
 
+    this._buildSinusMeter();
+
     this.capsuleLayer = new Container();
     this.laserLayer = new Container();
     this.ballLayer = new Container();
@@ -238,6 +252,8 @@ export class GameScene extends Scene {
 
     this.hud = new Hud();
     this.view.addChild(this.hud);
+
+    this._buildPauseButton();
 
     this.message = makeText('', { size: 26, color: 0xffffff, anchor: 0.5, title: true });
     this.message.position.set(DESIGN.width / 2, 300);
@@ -467,7 +483,7 @@ export class GameScene extends Scene {
 
     if (shouldCorrupt) {
       this.ctx.audio.lifeLost();
-      this._flashMessage('PADDLE CORRUPTED', 0xff2e97);
+      this._flashMessage('RAKET BOZULDU', 0xff2e97);
     }
   }
 
@@ -496,7 +512,7 @@ export class GameScene extends Scene {
     this._setTimer('plasma', PLASMA.durationMs / 1000, () => {}, 'purge');
 
     this.ctx.audio.extraLife();
-    this._flashMessage('SYSTEM PURGED', 0x7cf9ff);
+    this._flashMessage('SİSTEM ARINDIRILDI', 0x7cf9ff);
 
     this.particles.burst(this.paddle.x, this.paddle.top, {
       count: 40,
@@ -828,9 +844,9 @@ export class GameScene extends Scene {
   }
 
   _currentSpeed() {
-    const base = BALL.baseSpeed + this.levelIndex * BALL.speedPerLevel;
+    const base = BALL.baseSpeed * this._speedScale;
     const ramp = 1 + BALL.rampPerSecond * this.rallyTime;
-    return Math.min(BALL.maxSpeed, base * ramp * this.speedMod);
+    return Math.min(BALL.maxSpeed * this._speedScale, base * ramp * this.speedMod);
   }
 
   _serve() {
@@ -847,7 +863,7 @@ export class GameScene extends Scene {
     ball.x = this.paddle.x;
     ball.y = this.paddle.top - ball.radius - 1;
 
-    this._showMessage(this.levelIndex === 0 ? 'CLICK OR PRESS SPACE' : 'GET READY', 1.4);
+    this._showMessage(this.levelIndex === 0 ? 'TIKLA VEYA SPACE TUŞUNA BAS' : 'HAZIR OL', 1.4);
   }
 
   _releaseHeldBalls() {
@@ -900,6 +916,7 @@ export class GameScene extends Scene {
     this.particles.update(dt);
     this._updateFloaters(dt);
     this._updateBackdrop(dt);
+    this._updateSinusMeter(dt);
 
     if (this.paddle.corrupted) this.paddle.updateGlitch(dt);
     this._updateShake(dt);
@@ -993,6 +1010,87 @@ export class GameScene extends Scene {
       total[key] > 0 ? this.remainingBricks[key] / total[key] : overall;
 
     this.backdrop.update(dt, 1 - ratio('left'), 1 - ratio('right'));
+  }
+
+  /**
+   * Dynamic sinus-fullness meter: a small four-stage image in the corner of
+   * the field — sinus1 (most inflamed/congested) down to sinus4 (cleanest) —
+   * that tracks the level's own breakable-brick count. Scenery only: nothing
+   * here is solid, and nothing here feeds back into `remaining` or the
+   * level-clear check, which read the brick field directly regardless of
+   * what this is currently showing.
+   *
+   * Positioned in the one corner of the field no layout ever authors a cell
+   * into — columns 0-2 are outside the range `validateLevels` allows any
+   * shape to occupy, see the note at the top of levels.js — so the meter
+   * never has a brick drawn over it on any level, boss included.
+   *
+   * Skipped entirely on a level with nothing breakable to begin with (a
+   * boss encounter): a meter with `_sinusTotal <= 0` would only ever divide
+   * by zero.
+   */
+  _buildSinusMeter() {
+    this._sinusTotal = this.brickField.remaining;
+    if (this._sinusTotal <= 0) {
+      this.sinusSprites = null;
+      return;
+    }
+
+    // sinus1..4.png are all the same 134x102 source, so one aspect serves
+    // every stage; `applyImageAssets()` may not have landed the real art yet
+    // when this runs, so this is worked out from the ratio rather than read
+    // off whichever texture (baked placeholder or real PNG) happens to be
+    // in TEX.sinus1 at this exact moment.
+    const w = 70;
+    const h = w * (102 / 134);
+    const x = FIELD.left + 14;
+    const y = FIELD.top + 14;
+
+    this.sinusSprites = ['sinus1', 'sinus2', 'sinus3', 'sinus4'].map((key, i) => {
+      const sprite = new Sprite(TEX[key]);
+      sprite.position.set(x, y);
+      sprite.width = w;
+      sprite.height = h;
+      // Only the first stage starts visible — the level opens at 100%
+      // remaining, which is stage 1 by definition.
+      sprite.alpha = i === 0 ? 1 : 0;
+      this.gameContainer.addChild(sprite);
+      return sprite;
+    });
+  }
+
+  /**
+   * Eases every stage's alpha toward 1 (its own tier is current) or 0
+   * (it isn't), every frame — a plain per-frame lerp is what turns "the tier
+   * changed" into a crossfade with no extra timer or tween state to manage.
+   *
+   * Tier bounds match the brief exactly: 100-75% remaining is stage 1 (most
+   * inflamed), stepping down to under 25% for stage 4 (cleanest).
+   */
+  _updateSinusMeter(dt) {
+    if (!this.sinusSprites) return;
+
+    // The 30s respawn mechanic (`spawnBricks`, see bricks.js) can push
+    // `remaining` back above the count `_sinusTotal` was captured at when the
+    // level opened. Left alone, that produces a ratio over 1.0 forever after
+    // — the meter reads the level as permanently at its most-congested stage
+    // no matter how much the player actually clears, since `remaining` can
+    // never again reach the old (now too-small) denominator. Raising the
+    // denominator to match keeps "remaining / total" meaning what it always
+    // meant — the fraction of currently-possible bricks still standing — so a
+    // respawn wave correctly reads as renewed congestion rather than breaking
+    // the percentage math.
+    if (this.brickField.remaining > this._sinusTotal) this._sinusTotal = this.brickField.remaining;
+
+    const ratio = this.brickField.remaining / this._sinusTotal;
+    const tier = ratio >= 0.75 ? 0 : ratio >= 0.5 ? 1 : ratio >= 0.25 ? 2 : 3;
+
+    const FADE_RATE = 2.5; // higher = snappier crossfade, in units of 1/second
+    for (let i = 0; i < this.sinusSprites.length; i++) {
+      const target = i === tier ? 1 : 0;
+      const sprite = this.sinusSprites[i];
+      sprite.alpha += (target - sprite.alpha) * Math.min(1, dt * FADE_RATE);
+    }
   }
 
   /**
@@ -1191,7 +1289,7 @@ export class GameScene extends Scene {
     }
 
     let t = (ball.x - p.x) / p.halfWidth;
-    t = clamp(t + (p.vx / PADDLE.keySpeed) * BALL.paddleEnglish, -1, 1);
+    t = clamp(t + (p.vx / PADDLE.keySpeed) * BALL.paddleEnglish * this._controlScale, -1, 1);
 
     ball.launch(t * BALL.maxPaddleAngle);
     this.ctx.audio.paddleBounce();
@@ -1315,7 +1413,7 @@ export class GameScene extends Scene {
 
     // Every landed core hit drops the relief capsule.
     this._spawnPurgeCapsule(this.boss.x, this.boss.y);
-    this._flashMessage('CORE BREACH', 0x7cf9ff);
+    this._flashMessage('ÇEKİRDEK İHLALİ', 0x7cf9ff);
   }
 
   _spawnPurgeCapsule(x, y) {
@@ -1328,7 +1426,7 @@ export class GameScene extends Scene {
     this.boss.onFire = null;
     this._clearPackets();
     this.addScore(PURGE.bossClearScore);
-    this._flashMessage('CONSTRUCT PURGED', 0x7cf9ff);
+    this._flashMessage('YAPI ARINDIRILDI', 0x7cf9ff);
     this.triggerShake(SHAKE.bossDefeat.duration, SHAKE.bossDefeat.intensity);
 
     for (let i = 0; i < 10; i++) {
@@ -1578,12 +1676,15 @@ export class GameScene extends Scene {
     this.run.lives--;
     this.hud.setLives(this.run.lives);
 
-    if (this.run.lives < 0) {
-      this._showMessage('GAME OVER', 0);
+    // Game Over fires the moment lives hits zero — there is no bonus ball
+    // hiding behind a 0 on the HUD. Reaching Revive or Results with `lives`
+    // still readable as 0 (not -1) is what that display is showing.
+    if (this.run.lives <= 0) {
+      this._showMessage('OYUN BİTTİ', 0);
       this.ctx.audio.gameOver();
       this._wait(2.2, () => this._finish(false));
     } else {
-      this._showMessage('BALL LOST', 1.2);
+      this._showMessage('TOP KAYBEDİLDİ', 1.2);
       this._wait(1.3, () => {
         this.paddle.reset();
         this._serve();
@@ -1605,7 +1706,7 @@ export class GameScene extends Scene {
     for (const ball of this.balls) ball.destroy({ children: true });
     this.balls.length = 0;
 
-    this._showMessage(warped ? 'LEVEL WARP' : 'LEVEL CLEAR', 0);
+    this._showMessage(warped ? 'BÖLÜM ATLANDI' : 'BÖLÜM TAMAMLANDI', 0);
 
     for (let i = 0; i < 6; i++) {
       this._wait(i * 0.12, () =>
@@ -1777,10 +1878,66 @@ export class GameScene extends Scene {
 
   // --- pause ---------------------------------------------------------------
 
+  /**
+   * Touch-friendly pause/resume toggle, top of the HUD bar. Sits in the one
+   * span of that bar nothing else ever reaches into: level text is centred
+   * and short enough to stay inside ~410px, the lives row is right-aligned
+   * and never reaches left of ~490px even at RUN.maxLives hearts, so 450px
+   * has a clear ~80px lane on every level.
+   *
+   * ESC (see `update()`'s `input.consumePause()`) and this button both do
+   * nothing but call `_setPaused` — that shared call is what keeps the two
+   * in sync, not any bookkeeping between them.
+   */
+  _buildPauseButton() {
+    const cx = 450;
+    const cy = HUD_H / 2;
+    const hitW = 44;
+    const hitH = HUD_H;
+
+    const btn = new Sprite(TEX.pauseIcon);
+    btn.anchor.set(0.5);
+    btn.width = 22;
+    btn.height = 22;
+    btn.position.set(cx, cy);
+    btn.eventMode = 'static';
+    btn.cursor = 'pointer';
+    // Generously larger than the icon itself — a thumb is not a mouse
+    // pointer, and this is the one control on screen with no room to grow
+    // its own art to match.
+    btn.hitArea = new Rectangle(-hitW / 2, -hitH / 2, hitW, hitH);
+    // `pointerdown`, not `pointertap` — instant on both mouse and touch, no
+    // down/up gesture to resolve first. Stopping propagation on the Pixi
+    // event AND its native event is what actually matters here: without it,
+    // this same press also reaches `Input`'s window-level listener (see
+    // input.js), which reads it as ordinary field input and drags the
+    // paddle's control target to this button's screen position — invisible
+    // while the pause menu covers the field, but it snaps the paddle here the
+    // instant play resumes, which reads as "the pause button is broken."
+    btn.on('pointerdown', (e) => {
+      e.stopPropagation();
+      e.nativeEvent?.stopPropagation();
+      this.ctx.audio.uiClick();
+      this._setPaused(!this.paused);
+    });
+
+    this.pauseButton = btn;
+    this.view.addChild(btn);
+  }
+
   _setPaused(on) {
     if (this.paused === on) return;
     this.paused = on;
     this.ctx.audio.setMuted(on);
+    this.pauseButton.texture = on ? TEX.continueIcon : TEX.pauseIcon;
+    this.ctx.input.suspended = on;
+    // Reaching for "DEVAM ET" (or the corner icon) with a mouse leaves the
+    // cursor sitting over that button, which is exactly where `suspended`
+    // stops the control target from drifting to — but the drift already
+    // happened on the way there, before this call. Resyncing to the paddle's
+    // actual position is what stops that stale target from being read on the
+    // very first frame back, snapping the paddle toward the button.
+    if (!on) this.ctx.input.setPointerTarget(this.paddle.x);
 
     if (on) this._buildPauseMenu();
     else this._destroyPauseMenu();
@@ -1803,7 +1960,7 @@ export class GameScene extends Scene {
     box.position.set((DESIGN.width - 300) / 2, 110);
     this.pauseLayer.addChild(box);
 
-    const title = makeText('PAUSED', { size: 30, anchor: 0.5, title: true });
+    const title = makeText('DURAKLATILDI', { size: 30, anchor: 0.5, title: true });
     title.position.set(DESIGN.width / 2, 152);
     this.pauseLayer.addChild(title);
 
@@ -1811,10 +1968,10 @@ export class GameScene extends Scene {
     menu.position.set((DESIGN.width - 240) / 2, 195);
 
     menu.add(
-      new Button('RESUME', () => this._setPaused(false), { width: 240 }),
+      new Button('DEVAM ET', () => this._setPaused(false), { width: 240 }),
     );
     menu.add(
-      new Button('RESTART LEVEL', () => {
+      new Button('BÖLÜMÜ YENİDEN BAŞLAT', () => {
         audio.setMuted(false);
         this.ctx.sm.change(TransitionScene, {
           next: GameScene,
@@ -1832,7 +1989,7 @@ export class GameScene extends Scene {
       }, { width: 240 }),
     );
     menu.add(
-      new Button('QUIT TO MENU', async () => {
+      new Button('MENÜYE ÇIK', async () => {
         audio.setMuted(false);
         audio.stopMusic();
         const { MenuScene } = await import('./menu-scene.js');
@@ -1842,6 +1999,12 @@ export class GameScene extends Scene {
 
     this.pauseLayer.addChild(menu);
     this.view.addChild(this.pauseLayer);
+
+    // Re-added rather than newly built: `addChild` on an existing child moves
+    // it to the top of the display list, so the corner toggle stays above the
+    // dim overlay and clickable — tapping it again resumes exactly like
+    // RESUME does.
+    this.view.addChild(this.pauseButton);
   }
 
   _destroyPauseMenu() {
@@ -1863,5 +2026,11 @@ export class GameScene extends Scene {
     this.ctx.audio.setMuted(false);
     this.timers.clear();
     this._pending.length = 0;
+    // Belt-and-suspenders: the pause menu's own buttons (restart, exit to
+    // menu) change scene directly without going through `_setPaused(false)`,
+    // so this is the one place guaranteed to run on every way out of a paused
+    // GameScene — leaving `suspended` stuck true would silently freeze paddle
+    // and pointer input in whatever scene comes next.
+    this.ctx.input.suspended = false;
   }
 }

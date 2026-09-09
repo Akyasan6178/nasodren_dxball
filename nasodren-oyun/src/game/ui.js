@@ -128,7 +128,21 @@ export class Button extends Container {
     this.hitArea = new Rectangle(0, 0, width, height);
 
     this.on('pointerover', () => this.emit('hover', this));
-    this.on('pointertap', () => this.activate());
+    // `pointerdown` rather than `pointertap`: fires the instant a finger or
+    // mouse lands, with no down-then-up gesture to recognise first, so it
+    // cannot be missed by a quick tap on a real touchscreen the way a
+    // synthetic tap gesture occasionally can. `stopPropagation` on both the
+    // Pixi event and its underlying native event keeps the same press from
+    // also reaching `Input`'s own window-level listener (see input.js) —
+    // without it, every button press also relocates the paddle's control
+    // target to wherever the button sits on screen, which is invisible while
+    // a menu covers the field but shows up as a paddle "teleport" the instant
+    // play resumes.
+    this.on('pointerdown', (e) => {
+      e.stopPropagation();
+      e.nativeEvent?.stopPropagation();
+      this.activate();
+    });
 
     this.redraw();
   }

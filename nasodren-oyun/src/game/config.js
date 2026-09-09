@@ -126,12 +126,22 @@ export const COLORS = [
 ];
 
 export const BALL = {
-  radius: 5,
-  /** Starting speed in design-pixels per second. */
+  /**
+   * Physical hitbox radius, in design pixels. Raised from 5 — the ball read
+   * as too small even after CYCLAMEN.visualScale made the sprite bigger than
+   * its collision box. 7 is a safe ceiling: brick cells are GRID.cellH=20
+   * tall, so a 14px ball diameter still fits through a single-row gap with
+   * margin, and it stays well under PADDLE.height=14 and even the `tiny`
+   * paddle width (34), so no bounce/hitbox math anywhere that reads
+   * `ball.radius` needs to change — see ball.js and every `_collide*` method
+   * in game-scene.js, all of which already derive from this value rather
+   * than a hardcoded number.
+   */
+  radius: 7,
+  /** Starting speed in design-pixels per second. Scaled per level — see DIFFICULTY. */
   baseSpeed: 268,
+  /** Hard ceiling on ball speed. Scaled per level — see DIFFICULTY. */
   maxSpeed: 540,
-  /** Each level starts marginally faster than the last. */
-  speedPerLevel: 8,
   /** Passive ramp: the rally itself gets faster the longer it runs. */
   rampPerSecond: 0.0055,
   /** Steering ceiling: hitting the paddle edge deflects this far off vertical. */
@@ -153,6 +163,60 @@ export const BALL = {
   slowFactor: 0.72,
   fastFactor: 1.32,
 };
+
+/**
+ * Progressive difficulty curve, driven by `levelIndex` alone (0-based; Level
+ * 1 is index 0 and always plays at the base tuning above, multiplier 1).
+ * Every other system reads its numbers from BALL/PADDLE and multiplies them
+ * by what this file computes — nothing outside this block should hard-code a
+ * "harder per level" number of its own, so the whole curve stays tunable from
+ * one place.
+ */
+export const DIFFICULTY = {
+  /**
+   * Per-level ball-speed growth, COMPOUNDING rather than additive — level `i`
+   * multiplies both BALL.baseSpeed and BALL.maxSpeed by
+   * `(1 + speedGrowthPerLevel) ** i`. At 0.06 that is +6% at level 2, about
+   * +34% by level 7, so the climb is gentle early and only bites late,
+   * exactly where a returning player's own skill has also grown.
+   */
+  speedGrowthPerLevel: 0.06,
+  /**
+   * Ceiling on the multiplier itself. Without this the last levels of a long
+   * run would compound past anything the paddle/reaction-time budget was
+   * tuned for; 1.7 keeps the hardest level well inside "hard but readable".
+   */
+  maxSpeedMultiplier: 1.7,
+
+  /**
+   * Per-level shrink to the paddle's own "assist" — see BALL.paddleEnglish in
+   * `_collidePaddle`. Early levels forgive an imprecise, sliding-into-it
+   * bounce; later ones ask for a cleaner hit by numbing how much the paddle's
+   * own motion steers the ball.
+   */
+  paddleControlDropPerLevel: 0.02,
+  /** Floor on that scale — control never drops below 60% of its base assist. */
+  minPaddleControlScale: 0.6,
+};
+
+/**
+ * `(1 + speedGrowthPerLevel) ** levelIndex`, clamped to `maxSpeedMultiplier`.
+ * Multiply both `BALL.baseSpeed` and `BALL.maxSpeed` by this — see
+ * `GameScene._currentSpeed()`.
+ */
+export function difficultySpeedScale(levelIndex) {
+  const raw = (1 + DIFFICULTY.speedGrowthPerLevel) ** Math.max(0, levelIndex);
+  return Math.min(DIFFICULTY.maxSpeedMultiplier, raw);
+}
+
+/**
+ * Linear falloff toward `minPaddleControlScale`. Multiply `BALL.paddleEnglish`
+ * by this — see `GameScene._collidePaddle()`.
+ */
+export function difficultyControlScale(levelIndex) {
+  const raw = 1 - DIFFICULTY.paddleControlDropPerLevel * Math.max(0, levelIndex);
+  return Math.max(DIFFICULTY.minPaddleControlScale, raw);
+}
 
 export const PADDLE = {
   y: 442,
@@ -456,7 +520,7 @@ export const SNEEZE = {
    * legible starting from a translucent cell than it was from an opaque one.
    */
   loosenedAlpha: 0.6,
-  label: 'ACHOO!',
+  label: 'HAPŞU!',
   color: 0x86e05a,
 };
 
@@ -495,7 +559,7 @@ export const CYCLAMEN = {
    * be bigger rather than just its picture, BALL.radius is the lever — it moves
    * the hitbox, and it changes the balance of all 13 levels.
    */
-  visualScale: 1.55,
+  visualScale: 1.8,
 
   /**
    * Tumble in rad/s at BALL.baseSpeed, scaled by the ball's live speed.

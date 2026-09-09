@@ -107,6 +107,9 @@ export class Brick extends Sprite {
     /** Set once by BrickField.buffAllBricks; see applyBuff()/tickPulse(). */
     this.buffed = false;
     this._pulseT = 0;
+
+    /** Damage decal, created lazily the first time this brick survives a hit. */
+    this.crack = null;
   }
 
   get centerX() {
@@ -119,9 +122,9 @@ export class Brick extends Sprite {
 
   /**
    * Swaps in the tier texture (brick1/2/3.png) matching this brick's current
-   * `hits` — see `textureKeyFor`. Replaces the older crack-overlay: a tier
-   * swap already tells the player exactly how tough the cell still is, so
-   * there is nothing left for a separate damage decal to add.
+   * `hits` — see `textureKeyFor`. Paired with the crack decal from
+   * `_updateCrack`: the tier says which image this is, the crack says this
+   * particular one has already been hit once.
    */
   _applyTierTexture() {
     const key = textureKeyFor(this.kind, this.colorIndex, this.shape, this.hits);
@@ -134,9 +137,43 @@ export class Brick extends Sprite {
     this.height = this.bh;
   }
 
-  /** Show accumulated damage on multi-hit bricks by dropping a tier. */
+  /**
+   * Show accumulated damage on multi-hit bricks: a tier drop plus a crack
+   * decal. A cell only ever reaches more than one hit via the 60s buff (see
+   * `BrickField.buffAllBricks`), so this is what makes a hardened cell that
+   * has started to give way readable at a glance, on top of the tougher
+   * tiers already looking close enough in colour to blur together mid-rally.
+   */
   refreshDamage() {
     this._applyTierTexture();
+    this._updateCrack();
+  }
+
+  /**
+   * Lays a crack sprite over the cell once it has taken at least one hit
+   * without breaking. Stretched onto `bw`/`bh` exactly like the tier texture
+   * itself, so it fits whatever shape this brick actually is.
+   */
+  _updateCrack() {
+    const taken = this.maxHits - this.hits;
+
+    if (taken <= 0) {
+      if (this.crack) this.crack.visible = false;
+      return;
+    }
+
+    if (!this.crack) {
+      this.crack = new Sprite(TEX.crack1);
+      // The parent is anchored at 0.5, so a child at the origin sits on the
+      // cell's centre.
+      this.crack.anchor.set(0.5);
+      this.addChild(this.crack);
+    }
+
+    this.crack.visible = true;
+    this.crack.texture = taken >= 2 ? TEX.crack2 : TEX.crack1;
+    this.crack.width = this.bw;
+    this.crack.height = this.bh;
   }
 
   /**

@@ -153,6 +153,54 @@ function boneFace() {
   return g;
 }
 
+/**
+ * A damage decal, laid over a brick that has taken at least one hit but
+ * survived it. The HP-tier art alone (brick1/2/3.png) already changes which
+ * image a brick shows, but the three tiers read close enough in colour that
+ * a player mid-rally was missing the swap — this is the second, unmissable
+ * cue layered on top: real cracks, not just a different shade of pill.
+ *
+ * Baked at one fixed full-cell size regardless of which shape actually wears
+ * it. `Brick._updateCrack` stretches the sprite onto `bw`/`bh` exactly like
+ * it already does for the tier texture, so a half or small cell gets the
+ * same crack, proportionally squashed — consistent with how the tier art
+ * itself is fit to every shape now.
+ *
+ * `level` 1 is one hairline seam (one hit taken); `level` 2 is a wider spread
+ * plus a second seam (two or more taken), so the decal itself communicates
+ * how close the cell is to breaking, not just that it is damaged at all.
+ */
+function crackOverlay(level) {
+  const w = BRICK_W;
+  const h = BRICK_H;
+  const g = new Graphics();
+
+  const seams =
+    level === 1
+      ? [[w * 0.34, 2, w * 0.46, h - 3]]
+      : [
+          [w * 0.3, 2, w * 0.44, h - 3],
+          [w * 0.62, 1, w * 0.5, h - 2],
+          [w * 0.72, h * 0.4, w * 0.9, h - 4],
+        ];
+
+  for (const [x1, y1, x2, y2] of seams) {
+    // A slight kink partway along each seam, not a straight cut — a real
+    // fracture does not run in one line.
+    const mx = (x1 + x2) / 2 + (level === 1 ? 2.5 : -2);
+    const my = (y1 + y2) / 2;
+
+    g.moveTo(x1, y1).lineTo(mx, my).lineTo(x2, y2).stroke({ width: 1.6, color: 0x000000, alpha: 0.6 });
+    g.moveTo(x1, y1).lineTo(mx, my).lineTo(x2, y2).stroke({ width: 0.6, color: 0x000000, alpha: 0.9 });
+  }
+
+  // A faint overall darkening so a damaged cell reads as bruised even at a
+  // glance that misses the seams themselves.
+  g.roundRect(0, 0, w, h, BRICK.radius).fill({ color: 0x000000, alpha: level === 1 ? 0.08 : 0.16 });
+
+  return g;
+}
+
 /** Fake radial falloff by stacking translucent circles — no filter, no cost. */
 function radialGlow(radius, color, steps = 14) {
   const g = new Graphics();
@@ -313,11 +361,32 @@ export function buildTextures(renderer) {
 
   TEX.brickBone = bake(renderer, boneFace());
 
+  TEX.crack1 = bake(renderer, crackOverlay(1));
+  TEX.crack2 = bake(renderer, crackOverlay(2));
+
   // TransitionScene's two flanking loading icons. Same fallback contract as
   // everything else in this file: a plain baked placeholder until
   // `applyImageAssets()` swaps in loading2.png/loading3.png.
   TEX.loadingHeart = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xff4d5a));
   TEX.loadingFlame = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xffd23f));
+
+  // HUD life icon and the paddle skin. Same fallback contract as everything
+  // else — a plain baked placeholder until heart.png/platform.png land.
+  TEX.heartIcon = bake(renderer, new Graphics().circle(10, 10, 9).fill(0xff4d5a));
+  TEX.paddleSkin = bake(renderer, new Graphics().roundRect(0, 0, 88, 14, 7).fill(0x35d0d8));
+
+  // The HUD pause/resume toggle. Same fallback contract — a plain baked
+  // placeholder until pause.png/continue.png land.
+  TEX.pauseIcon = bake(renderer, new Graphics().roundRect(0, 0, 20, 20, 5).fill(0x35d0d8));
+  TEX.continueIcon = bake(renderer, new Graphics().roundRect(0, 0, 20, 20, 5).fill(0x86e05a));
+
+  // GameScene's congestion meter, four stages most-to-least inflamed. Same
+  // fallback contract — plain baked placeholders, one shade each, until
+  // sinus1..4.png land.
+  TEX.sinus1 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xd6202f));
+  TEX.sinus2 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xff9130));
+  TEX.sinus3 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xffd23f));
+  TEX.sinus4 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0x86e05a));
 
   TEX.ball = bake(renderer, ballFace());
   TEX.glow = bake(renderer, radialGlow(28, 0xffffff));
@@ -418,6 +487,21 @@ export function applyImageAssets() {
 
   const siklement = Assets.get('siklement');
   if (siklement) TEX.siklement = siklement;
+
+  const heartIcon = Assets.get('heartIcon');
+  if (heartIcon) TEX.heartIcon = heartIcon;
+  const paddleSkin = Assets.get('paddleSkin');
+  if (paddleSkin) TEX.paddleSkin = paddleSkin;
+
+  const pauseIcon = Assets.get('pauseIcon');
+  if (pauseIcon) TEX.pauseIcon = pauseIcon;
+  const continueIcon = Assets.get('continueIcon');
+  if (continueIcon) TEX.continueIcon = continueIcon;
+
+  for (const key of ['sinus1', 'sinus2', 'sinus3', 'sinus4']) {
+    const tex = Assets.get(key);
+    if (tex) TEX[key] = tex;
+  }
 }
 
 

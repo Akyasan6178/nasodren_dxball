@@ -1,10 +1,23 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { COLORS, DESIGN, RUN, SCORE } from '../game/config.js';
+import { COLORS, DESIGN, GRID, RUN, SCORE } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
+import { TEX } from '../game/textures.js';
 import { Button, makeText, panel } from '../game/ui.js';
 import { GameScene } from './game-scene.js';
 import { TransitionScene } from './transition-scene.js';
+
+/**
+ * Thumbnail geometry. `cellH` is derived from `cellW` by the real grid's own
+ * aspect (GRID.cellH/GRID.cellW), not a separate guess — that ratio is what
+ * broke when the flat colour-rect preview was first written square-ish and
+ * never revisited once bricks became photographic art with their own real
+ * proportions to honour.
+ */
+const PREVIEW_W = 72;
+const PREVIEW_CELL_W = PREVIEW_W / GRID.cols;
+const PREVIEW_CELL_H = PREVIEW_CELL_W * (GRID.cellH / GRID.cellW);
+const PREVIEW_H = PREVIEW_CELL_H * GRID.rows;
 
 const COLS = 4;
 const CELL_W = 132;
@@ -22,11 +35,11 @@ export class LevelSelectScene extends Scene {
   enter() {
     const { save, audio, sm, input } = this.ctx;
 
-    const title = makeText('SELECT LEVEL', { size: 30, anchor: 0.5, title: true });
+    const title = makeText('BÖLÜM SEÇ', { size: 30, anchor: 0.5, title: true });
     title.position.set(DESIGN.width / 2, 46);
     this.view.addChild(title);
 
-    const hint = makeText(`UNLOCKED  ${save.unlocked} / ${LEVELS.length}`, {
+    const hint = makeText(`AÇIK  ${save.unlocked} / ${LEVELS.length}`, {
       size: 11,
       anchor: 0.5,
       color: 0x6a7bb5,
@@ -64,7 +77,7 @@ export class LevelSelectScene extends Scene {
       grid.addChild(tile);
     });
 
-    const back = new Button('BACK TO MENU', async () => {
+    const back = new Button('MENÜYE DÖN', async () => {
       audio.uiClick();
       const { MenuScene } = await import('./menu-scene.js');
       sm.change(MenuScene, {});
@@ -98,58 +111,76 @@ export class LevelSelectScene extends Scene {
     name.position.set(8, CELL_H - 17);
     tile.addChild(name);
 
-    // Layout thumbnail, drawn from the same rows the level itself uses.
-    const preview = new Graphics();
-    const pw = 72;
-    const cellW = pw / 13;
-    const cellH = 3.4;
+    // Layout thumbnail, drawn from the same rows the level itself uses, and
+    // positioned identically for every level so a boss tile's Construct lands
+    // in the same box a brick tile's cells do.
+    const previewX = CELL_W - PREVIEW_W - 8;
+    const previewY = 10;
+    const alpha = unlocked ? 0.95 : 0.22;
+
+    // A sliver of the real background, so the thumbnail reads as "this
+    // level's board" rather than as isolated dots on flat panel colour —
+    // the same art every other screen already shows full-size. Stretched
+    // non-uniformly to fill the box exactly, same as the full-screen Sprite
+    // in GameScene; dimmed well below the dots so it stays scenery.
+    const bgPreview = new Sprite(TEX.background);
+    bgPreview.position.set(previewX, previewY);
+    bgPreview.width = PREVIEW_W;
+    bgPreview.height = PREVIEW_H;
+    bgPreview.alpha = unlocked ? 0.45 : 0.12;
+    tile.addChild(bgPreview);
+
+    const preview = new Container();
+    preview.position.set(previewX, previewY);
+    tile.addChild(preview);
 
     // A boss level has no rows, so draw the Construct instead of nothing.
     if (level.boss) {
-      const cx = pw / 2;
-      const cy = 11;
-      const alpha = unlocked ? 0.95 : 0.22;
-      preview.circle(cx, cy, 4).fill({ color: 0x7cf9ff, alpha });
+      const cx = PREVIEW_W / 2;
+      const cy = PREVIEW_H / 2;
+      const g = new Graphics();
+      g.circle(cx, cy, 4).fill({ color: 0x7cf9ff, alpha });
       for (const [r, segs] of [[8, 6], [13, 9]]) {
         for (let i = 0; i < segs; i++) {
           const a0 = (i / segs) * Math.PI * 2;
-          preview
-            .arc(cx, cy, r, a0, a0 + (Math.PI * 2 * 0.72) / segs)
+          g.arc(cx, cy, r, a0, a0 + (Math.PI * 2 * 0.72) / segs)
             .stroke({ width: 2, color: r === 8 ? 0x4d7bff : 0x35d0d8, alpha });
         }
       }
-      preview.position.set(CELL_W - pw - 8, 10);
-      tile.addChild(preview);
+      preview.addChild(g);
     }
 
+    // Every breakable cell shows the actual tier-1 brick art (what it always
+    // looks like at level start — mid-level tiers only ever appear via the
+    // 60s buff, which a static thumbnail cannot show anyway), tinted by the
+    // same palette colour `_specFor` would give it in the real level. Bone
+    // gets its own texture, untinted, same as on the real board.
     if (!level.boss) level.rows.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) {
         const ch = row[c];
         if (ch === '.') continue;
 
-        let color = 0x8a92a8;
-        if (ch >= '1' && ch <= '8') color = COLORS[Number(ch) - 1];
-        else if (ch === 'S') color = 0xc8ccd8;
-        else if (ch === 'G') color = 0xf0b429;
-        else if (ch === 'X') color = 0xd6202f;
-        else if (ch === 'B') color = 0xe6ddc6;
-        else if (ch === 'I') color = 0x4d7bff;
+        const isBone = ch === 'B';
+        const colorIndex = ch >= '1' && ch <= '8' ? Number(ch) - 1 : r % COLORS.length;
 
-        preview
-          .rect(c * cellW, r * cellH, cellW - 0.6, cellH - 0.6)
-          .fill({ color, alpha: unlocked ? 0.95 : 0.22 });
+        const dot = new Sprite(isBone ? TEX.brickBone : TEX.brickTier1);
+        dot.position.set(c * PREVIEW_CELL_W + 0.3, r * PREVIEW_CELL_H + 0.3);
+        dot.width = PREVIEW_CELL_W - 0.6;
+        dot.height = PREVIEW_CELL_H - 0.6;
+        if (!isBone) dot.tint = COLORS[colorIndex];
+        dot.alpha = alpha;
+        preview.addChild(dot);
       }
     });
-
-    if (!level.boss) {
-      preview.position.set(CELL_W - pw - 8, 10);
-      tile.addChild(preview);
-    }
 
     if (unlocked) {
       tile.eventMode = 'static';
       tile.cursor = 'pointer';
-      tile.on('pointertap', onSelect);
+      tile.on('pointerdown', (e) => {
+        e.stopPropagation();
+        e.nativeEvent?.stopPropagation();
+        onSelect();
+      });
       tile.on('pointerover', () => {
         bg.alpha = 0.75;
         this.ctx.audio.uiMove();
@@ -158,7 +189,7 @@ export class LevelSelectScene extends Scene {
         bg.alpha = 1;
       });
     } else {
-      const lock = makeText('LOCKED', { size: 10, color: 0x3d4468, anchor: [1, 0] });
+      const lock = makeText('KİLİTLİ', { size: 10, color: 0x3d4468, anchor: [1, 0] });
       lock.position.set(CELL_W - 8, 6);
       tile.addChild(lock);
     }

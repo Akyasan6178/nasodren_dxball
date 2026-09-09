@@ -32,7 +32,7 @@ export class ResultsScene extends Scene {
     const dim = new Graphics().rect(0, 0, DESIGN.width, DESIGN.height).fill(0x07070f);
     this.view.addChild(dim);
 
-    const heading = makeText(won ? 'YOU WIN' : 'GAME OVER', {
+    const heading = makeText(won ? 'KAZANDIN' : 'OYUN BİTTİ', {
       size: 44,
       anchor: 0.5,
       title: true,
@@ -45,7 +45,7 @@ export class ResultsScene extends Scene {
     box.position.set((DESIGN.width - 340) / 2, 140);
     this.view.addChild(box);
 
-    const scoreLabel = makeText('FINAL SCORE', { size: 11, anchor: 0.5, color: 0x6a7bb5 });
+    const scoreLabel = makeText('SONUÇ SKORU', { size: 11, anchor: 0.5, color: 0x6a7bb5 });
     scoreLabel.position.set(DESIGN.width / 2, 156);
     this.view.addChild(scoreLabel);
 
@@ -59,14 +59,14 @@ export class ResultsScene extends Scene {
     this.view.addChild(scoreValue);
 
     const reached = makeText(
-      won ? 'ALL LEVELS CLEARED' : `REACHED LEVEL ${level}`,
+      won ? 'TÜM BÖLÜMLER TAMAMLANDI' : `ULAŞILAN BÖLÜM ${level}`,
       { size: 11, anchor: 0.5, color: 0x9fb0e0 },
     );
     reached.position.set(DESIGN.width / 2, 228);
     this.view.addChild(reached);
 
     if (this.entering) {
-      const prompt = makeText('NEW HIGH SCORE - TYPE YOUR NAME, ENTER TO SAVE', {
+      const prompt = makeText('YENİ YÜKSEK SKOR - ADINI YAZ, KAYDETMEK İÇİN ENTER', {
         size: 11,
         anchor: 0.5,
         color: 0x86e05a,
@@ -95,7 +95,7 @@ export class ResultsScene extends Scene {
 
     if (showRevive) {
       this.menu.add(
-        new Button(`REVIVE (${revivesLeft} LEFT)`, () => {
+        new Button(`CANLANDIR (${revivesLeft} KALDI)`, () => {
           audio.uiClick();
           this.ctx.sm.change(ReviveScene, { run, levelIndex: this.params.levelIndex });
         }, { accent: 0x86e05a }),
@@ -103,7 +103,7 @@ export class ResultsScene extends Scene {
     }
 
     this.menu.add(
-      new Button('PLAY AGAIN', () => {
+      new Button('TEKRAR OYNA', () => {
         this._commit();
         audio.uiClick();
         this.ctx.sm.change(LevelSelectScene, {});
@@ -111,7 +111,7 @@ export class ResultsScene extends Scene {
     );
 
     this.menu.add(
-      new Button('MAIN MENU', async () => {
+      new Button('ANA MENÜ', async () => {
         this._commit();
         audio.uiClick();
         const { MenuScene } = await import('./menu-scene.js');

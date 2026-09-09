@@ -65,12 +65,12 @@ export class ReviveScene extends Scene {
   }
 
   _buildHeading() {
-    const heading = heavyText('REVIVE', { size: 24, color: 0x86e05a, align: 'center' });
+    const heading = heavyText('CANLANDIR', { size: 24, color: 0x86e05a, align: 'center' });
     heading.anchor.set(0.5);
     heading.position.set(DESIGN.width / 2, 24);
     this.view.addChild(heading);
 
-    const sub = heavyText(`CONTINUE ${this.run.revivesUsed} / ${RUN.maxRevives}`, {
+    const sub = heavyText(`DEVAM ${this.run.revivesUsed} / ${RUN.maxRevives}`, {
       size: 12,
       color: 0x9fb0e0,
       align: 'center',
@@ -90,7 +90,7 @@ export class ReviveScene extends Scene {
     const idx = pool[Math.floor(cosmeticRandom() * pool.length)];
     used.push(idx);
 
-    const title = heavyText('TIP:', { size: 14, color: 0x35d0d8, align: 'center' });
+    const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8, align: 'center' });
     title.anchor.set(0.5);
     title.position.set(DESIGN.width / 2, TIP_TITLE_Y);
     this.view.addChild(title);

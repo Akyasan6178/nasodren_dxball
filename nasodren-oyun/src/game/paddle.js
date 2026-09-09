@@ -1,6 +1,7 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import { GlitchFilter } from 'pixi-filters';
 import { CORRUPTION, DESIGN, FIELD, GLITCH, PADDLE } from './config.js';
+import { TEX } from './textures.js';
 
 /** GlitchFilter fill modes. 0 leaves displaced slices transparent. */
 const FILL_TRANSPARENT = 0;
@@ -22,6 +23,18 @@ export class Paddle extends Container {
   constructor() {
     super();
 
+    // The base body — a Sprite rather than drawn Graphics, stretched every
+    // redraw onto exactly `this.w x this.h`. The physics box (see the
+    // left/right/top/bottom getters below) is computed from `w`/`h` alone and
+    // never from anything this sprite does, so keeping the art in lockstep
+    // with those two numbers is what keeps the visible paddle and the one the
+    // ball actually bounces off the same rectangle.
+    this.skin = new Sprite(TEX.paddleSkin);
+    this.skin.anchor.set(0.5);
+    this.addChild(this.skin);
+
+    // Mode decorations drawn on top of the skin: energy strip, grab pads,
+    // corruption tear, laser barrels. See redraw().
     this.gfx = new Graphics();
     this.addChild(this.gfx);
 
@@ -250,14 +263,17 @@ export class Paddle extends Container {
     this._drawnMode = this.mode;
     this._drawnCorrupt = this.corrupted;
 
+    // Body: platform.png, stretched onto the exact physics box. Left
+    // untinted in Normal mode — the art's own blue-white already reads as
+    // that mode's accent — and tinted for Sticky/Laser so the colour cue the
+    // player already relies on to read the current mode survives the skin
+    // swap.
+    this.skin.width = w;
+    this.skin.height = h;
+    this.skin.tint = this.mode === 'normal' ? 0xffffff : accent;
+
     const g = this.gfx;
     g.clear();
-
-    // Body.
-    g.roundRect(-half, -h / 2, w, h, h / 2).fill(0x1d2340);
-    g.roundRect(-half, -h / 2, w, h * 0.5, h / 3).fill({ color: 0xffffff, alpha: 0.12 });
-    g.roundRect(-half + 0.75, -h / 2 + 0.75, w - 1.5, h - 1.5, h / 2)
-      .stroke({ width: 1.5, color: accent, alpha: 0.95 });
 
     // Central energy strip: the colour tells you the current mode at a glance.
     g.roundRect(-half + 6, -2, w - 12, 4, 2).fill({ color: accent, alpha: 0.9 });

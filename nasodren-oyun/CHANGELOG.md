@@ -138,3 +138,83 @@ başarısız olsa bile oyun asla boş bir dokuyla karşılaşmıyor.
   seviyede `standard`/`bone` dışında bir tuğla türü kalmadığı, Level 1'in
   hatasız oynanabildiği ve Revive akışının doğru şekilde 1 can verdiği
   doğrulandı.
+
+## Revizyon Paketi 5: Bugfix ve Optimizasyon
+
+### Duraklat/Devam Et Butonu — Gerçek Kök Neden
+
+- Buton aslında her zaman tıklanabiliyordu ve katman sırası zaten doğruydu
+  (`_buildPauseMenu()` butonu her açılışta `view`'in en üstüne yeniden
+  ekliyordu). Gerçek hata daha inceydi: `Input`, fare için **mutlak
+  konumlandırma** kullanıyor — imleç nereye giderse raketin hedefi de oraya
+  gidiyor, tıklama olsun olmasın. Duraklat ikonuna veya menüdeki
+  "DEVAM ET"/"BÖLÜMÜ YENİDEN BAŞLAT"/"MENÜYE ÇIK" butonlarına fareyle
+  yaklaşmak, oyun donuk göründüğü için fark edilmeden raketin kontrol
+  hedefini o butonun ekran konumuna kaydırıyordu; oyun devam ettiği anda bu,
+  raketin butona doğru "sıçraması" gibi görünüyordu — kullanıcının "buton
+  düzgün çalışmıyor" izlenimi buradan geliyordu.
+- Çözüm iki parçalı: `Input`'a bir `suspended` bayrağı eklendi
+  (`src/core/input.js`) — `down()`/`move()` bu bayrak açıkken hiçbir şey
+  yapmıyor. `GameScene._setPaused()` bu bayrağı `this.paused` ile senkron
+  tutuyor, ve devam ederken (`on === false`) `input.setPointerTarget(this
+  .paddle.x)` çağrısıyla kontrol hedefini **raketin o anki gerçek
+  konumuna** yeniden hizalıyor — imleç/parmak duraklama sırasında nerede
+  kalmış olursa olsun sıçrama tamamen ortadan kalkıyor. `GameScene.exit()`
+  bu bayrağı her ihtimalde `false`'a döndürüyor (menüye/yeniden başlatmaya
+  giden butonlar `_setPaused(false)`'u hiç çağırmadan sahne değiştirdiği
+  için), böylece bir sonraki sahnede takılı kalmıyor.
+- Ayrıca hem duraklat ikonu hem de paylaşılan `Button` bileşeni (tüm
+  menülerdeki her buton) `pointertap` yerine anlık `pointerdown`
+  dinliyor ve olayın hem Pixi hem de native tarayıcı yayılımını
+  (`stopPropagation`) durduruyor — bu, aynı basışın `Input`'un pencere
+  seviyesindeki dinleyicisine de ulaşıp oyun alanı girdisi gibi
+  işlenmesini (yukarıdaki sıçrama probleminin bir başka kaynağı) baştan
+  engelliyor. Değişiklik `ui.js#Button`, `game-scene.js`'teki duraklat
+  ikonu ve `level-select-scene.js`'teki bölüm karolarını kapsıyor.
+
+### Sinüs Doluluk Oranı — Hesap Hatası
+
+- `_buildSinusMeter()`, seviyenin `_sinusTotal`'ını yalnızca sahneye
+  girişte **bir kez** yakalıyordu. Ancak 30 saniyelik tuğla-doğma mekaniği
+  (`BrickField.spawnBricks()`) `remaining`'i bu dondurulmuş toplamın
+  üzerine çıkarabiliyor; bu durumda oran (`remaining / _sinusTotal`) 1.0'ı
+  aşıyor ve tuğlalar ne kadar kırılırsa kırılsın sayaç bir daha asla en
+  temiz aşamaya (sinus4) ulaşamıyordu — oyuncu gerçekten ilerleme
+  kaydetse bile gösterge hep en tıkalı aşamada (sinus1) takılı kalıyordu.
+- Düzeltme: `_updateSinusMeter(dt)` artık her karede `remaining`,
+  `_sinusTotal`'ı aşarsa toplamı da yukarı çekiyor
+  (`if (remaining > _sinusTotal) _sinusTotal = remaining`). Böylece bir
+  doğma dalgası, oran matematiğini bozmak yerine "yeniden tıkanma" olarak
+  doğru şekilde okunuyor ve yüzde eşikleri (%75/%50/%25) her zaman geçerli
+  bir tabana göre hesaplanıyor. Playwright ile hem gerçek bir temizleme
+  senaryosunda (sinus4'e ulaşma) hem de ardından gelen bir doğma dalgasında
+  (sinus1'e geri sıçrama, yeni toplamın doğru şekilde büyümesi) doğrulandı.
+
+### Mobil Uyumluluk
+
+- `viewport.js`'in ölçekleme/letterbox matematiği ve `input.js`'in
+  dokunmatik "çapa + delta" sürükleme deseni incelendi; ikisi de zaten
+  doğruydu (gerçek bir telefon en-boy oranında ekran taraması yapılarak
+  `viewport.scale`/`root.x` değerlerinin doğru ortaladığı doğrulandı).
+  Gerçek eksiklik, yukarıdaki duraklatma/buton hatasıyla aynı kökten
+  geliyordu: menü ve oyun-içi butonlar dokunmatik bir basışı da genel oyun
+  girdisi olarak sızdırıyordu. `pointerdown` + `stopPropagation`
+  değişikliği bunu da kapsadığı için artık hiçbir buton dokunuşu raketi
+  veya fırlatma kuyruğunu etkilemiyor. `hasTouch`/`isMobile` ile taklit
+  edilen bir telefon ekranında gerçek `touchscreen.tap()` ile menü
+  butonuna dokunma ve gerçek `pointermove` delta'sıyla rakete parmak
+  sürükleme, ikisi de doğrulandı.
+
+### Top Boyutu
+
+- `BALL.radius`, 5'ten **7**'ye çıkarıldı (`config.js`) — bu sefer sadece
+  kozmetik `CYCLAMEN.visualScale` değil, çarpışma kutusunun kendisi
+  büyüdü. Topun görsel boyutu zaten `radius`'tan türetildiği için
+  (`Ball._bodyScale`, `ball.js`) sprite otomatik olarak orantılı büyüdü;
+  ayrıca değişiklik gerektirmedi. Güvenlik payı: tuğla hücre yüksekliği
+  (`GRID.cellH = 20`) yeni top çapının (14px) her zaman rahatça üzerinde,
+  ve raketin en dar hâli (`PADDLE.widths.tiny = 34`) hâlâ çok daha geniş.
+  `npm run check:nose` (tüm 13 seviyenin sinüs geometrisi top yarıçapına
+  göre yeniden doğrulanıyor) ve 13 seviyenin tamamının hatasız yüklendiği
+  bir smoke-test sonrasında hiçbir çarpışma/sekme davranışının bozulmadığı
+  doğrulandı.

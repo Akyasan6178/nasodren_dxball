@@ -11,20 +11,20 @@ import { ICONS } from './powerup-icons.js';
  * the capsule colour so a player can read a falling capsule at a glance.
  */
 export const POWERUPS = [
-  { id: 'big',      letter: 'B', label: 'Wide Paddle',  good: true,  weight: 9,  color: 0x35d0d8 },
-  { id: 'catch',    letter: 'C', label: 'Grab',         good: true,  weight: 8,  color: 0x86e05a },
-  { id: 'laser',    letter: 'L', label: 'Lasers',       good: true,  weight: 8,  color: 0xff4d5a },
-  { id: 'multi',    letter: 'M', label: 'Triple Ball',  good: true,  weight: 8,  color: 0xffd23f },
-  { id: 'slow',     letter: 'S', label: 'Slow Ball',    good: true,  weight: 7,  color: 0x4d7bff },
-  { id: 'through',  letter: 'T', label: 'Through Ball', good: true,  weight: 5,  color: 0xa963ff },
-  { id: 'points',   letter: 'P', label: 'Bonus Points', good: true,  weight: 5,  color: 0xffd23f },
-  { id: 'life',     letter: 'E', label: 'Extra Life',   good: true,  weight: 3,  color: 0xff63c1 },
-  { id: 'warp',     letter: 'W', label: 'Level Warp',   good: true,  weight: 2,  color: 0xffffff },
+  { id: 'big',      letter: 'B', label: 'Geniş Raket',    good: true,  weight: 9,  color: 0x35d0d8 },
+  { id: 'catch',    letter: 'C', label: 'Yapış',          good: true,  weight: 8,  color: 0x86e05a },
+  { id: 'laser',    letter: 'L', label: 'Lazerler',       good: true,  weight: 8,  color: 0xff4d5a },
+  { id: 'multi',    letter: 'M', label: 'Üçlü Top',       good: true,  weight: 8,  color: 0xffd23f },
+  { id: 'slow',     letter: 'S', label: 'Yavaş Top',      good: true,  weight: 7,  color: 0x4d7bff },
+  { id: 'through',  letter: 'T', label: 'Delici Top',     good: true,  weight: 5,  color: 0xa963ff },
+  { id: 'points',   letter: 'P', label: 'Bonus Puan',     good: true,  weight: 5,  color: 0xffd23f },
+  { id: 'life',     letter: 'E', label: 'Ekstra Can',     good: true,  weight: 3,  color: 0xff63c1 },
+  { id: 'warp',     letter: 'W', label: 'Bölüm Atlama',   good: true,  weight: 2,  color: 0xffffff },
 
-  { id: 'small',    letter: 'N', label: 'Narrow Paddle', good: false, weight: 7, color: 0xb06cff },
-  { id: 'fast',     letter: 'X', label: 'Fast Ball',     good: false, weight: 6, color: 0xff9130 },
-  { id: 'zap',      letter: 'Z', label: 'Zap',           good: false, weight: 4, color: 0xff63c1 },
-  { id: 'death',    letter: 'D', label: 'Kill Paddle',   good: false, weight: 4, color: 0xd6202f },
+  { id: 'small',    letter: 'N', label: 'Dar Raket',      good: false, weight: 7, color: 0xb06cff },
+  { id: 'fast',     letter: 'X', label: 'Hızlı Top',      good: false, weight: 6, color: 0xff9130 },
+  { id: 'zap',      letter: 'Z', label: 'Şok',            good: false, weight: 4, color: 0xff63c1 },
+  { id: 'death',    letter: 'D', label: 'Raket Kaybı',    good: false, weight: 4, color: 0xd6202f },
 ];
 
 /**
@@ -39,7 +39,7 @@ export const POWERUPS = [
 export const FIREBALL = {
   id: 'fire',
   letter: 'F',
-  label: 'Fireball',
+  label: 'Ateş Topu',
   good: true,
   weight: 0,
   color: 0xff9130,
@@ -56,7 +56,7 @@ export const FIREBALL = {
 export const PURGE_PROTOCOL = {
   id: 'purge',
   letter: 'Q',
-  label: 'Purge Protocol',
+  label: 'Arındırma Protokolü',
   good: true,
   weight: 0,
   color: 0x7cf9ff,
@@ -86,7 +86,7 @@ export const PURGE_PROTOCOL = {
 export const REBOUND_CAPSULE = {
   id: 'rebound',
   letter: 'R',
-  label: 'Decongestant',
+  label: 'Dekonjestan',
   good: true,
   weight: 0,
   color: 0xd6202f,

@@ -27,7 +27,7 @@ export class BootScene extends Scene {
     title.position.set(DESIGN.width / 2, 180);
     this.view.addChild(title);
 
-    this.status = makeText('LOADING', { size: 12, anchor: 0.5, color: 0x6a7bb5 });
+    this.status = makeText('YÜKLENİYOR', { size: 12, anchor: 0.5, color: 0x6a7bb5 });
     this.status.position.set(DESIGN.width / 2, 268);
     this.view.addChild(this.status);
 
@@ -52,7 +52,7 @@ export class BootScene extends Scene {
         console.error('[boot] asset load failed', err);
         this.progress = 1;
         this.done = true;
-        this.status.text = 'LOAD ERROR - CONTINUING';
+        this.status.text = 'YÜKLEME HATASI - DEVAM EDİLİYOR';
       });
   }
 
