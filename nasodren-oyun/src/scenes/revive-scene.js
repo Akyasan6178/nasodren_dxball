@@ -1,6 +1,6 @@
-import { Sprite } from 'pixi.js';
+import { Container, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
-import { DESIGN, RUN } from '../game/config.js';
+import { DESIGN, frameDrop, RUN } from '../game/config.js';
 import { TEX } from '../game/textures.js';
 import { Button, panel } from '../game/ui.js';
 import { heavyText, TIPS } from './transition-scene.js';
@@ -13,7 +13,11 @@ const ART_Y = 226;
 
 const TIP_TITLE_Y = 396;
 const TIP_BODY_Y = 416;
-const TIP_WRAP_WIDTH = 560;
+/**
+ * Wrap width for the tip body: the authored 560 in landscape, and whatever
+ * leaves a 30px margin either side in the narrower portrait box.
+ */
+const TIP_WRAP_WIDTH = Math.min(560, DESIGN.width - 60);
 
 /** Compact top-right chip: the countdown while it runs, the button once it's spent. */
 const CORNER_W = 108;
@@ -50,10 +54,24 @@ export class ReviveScene extends Scene {
     // actually leaves it — spending the continue is what got them here.
     this.run.revivesUsed++;
 
+    // Everything but the corner chip is composed top-down against the authored
+    // 480-tall frame, so it rides in a container the board's extra height is
+    // shared out onto — the same treatment the menu, picker and results cards
+    // get. See frameDrop(). The chip stays outside it, anchored to the board's
+    // own top-right corner where a thumb can reach it.
+    this.content = new Container();
+    this.content.y = frameDrop();
+    this.view.addChild(this.content);
+
     this._buildArt();
     this._buildHeading();
     this._buildTip();
     this._buildCorner();
+  }
+
+  /** The board's floor moved — see SceneManager.resize. */
+  resize() {
+    this.content.y = frameDrop();
   }
 
   _buildArt() {
@@ -61,14 +79,14 @@ export class ReviveScene extends Scene {
     sprite.anchor.set(0.5);
     sprite.scale.set(ART_SIZE / sprite.texture.width);
     sprite.position.set(DESIGN.width / 2, ART_Y);
-    this.view.addChild(sprite);
+    this.content.addChild(sprite);
   }
 
   _buildHeading() {
     const heading = heavyText('CANLANDIR', { size: 24, color: 0x86e05a, align: 'center' });
     heading.anchor.set(0.5);
     heading.position.set(DESIGN.width / 2, 24);
-    this.view.addChild(heading);
+    this.content.addChild(heading);
 
     const sub = heavyText(`DEVAM ${this.run.revivesUsed} / ${RUN.maxRevives}`, {
       size: 12,
@@ -77,7 +95,7 @@ export class ReviveScene extends Scene {
     });
     sub.anchor.set(0.5);
     sub.position.set(DESIGN.width / 2, 48);
-    this.view.addChild(sub);
+    this.content.addChild(sub);
   }
 
   /** Picks a tip this playthrough's revives have not shown yet, set below the art. */
@@ -93,7 +111,7 @@ export class ReviveScene extends Scene {
     const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8, align: 'center' });
     title.anchor.set(0.5);
     title.position.set(DESIGN.width / 2, TIP_TITLE_Y);
-    this.view.addChild(title);
+    this.content.addChild(title);
 
     const body = heavyText(TIPS[idx], {
       size: 13,
@@ -103,7 +121,7 @@ export class ReviveScene extends Scene {
     });
     body.anchor.set(0.5, 0);
     body.position.set(DESIGN.width / 2, TIP_BODY_Y);
-    this.view.addChild(body);
+    this.content.addChild(body);
   }
 
   /** One corner chip, two faces: a countdown while running, a Skip button once spent. */

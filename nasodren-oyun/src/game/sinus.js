@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { DESIGN, FIELD, SINUS } from './config.js';
 import { GLOW_FOCI, GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
+import { MIDLINE_X } from './anatomy.js';
 
 /**
  * The paranasal sinuses, drawn as a glowing neon coronal section.
@@ -44,7 +45,7 @@ import { GLOW_FOCI, GLOW_REGIONS, NOSE_STROKES } from './cavity.js';
  * viewport.
  */
 
-const CX = DESIGN.width / 2;
+const CX = MIDLINE_X;
 
 /**
  * Replay a ring of points into a Graphics.

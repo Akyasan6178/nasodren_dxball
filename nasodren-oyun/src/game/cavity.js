@@ -1,10 +1,11 @@
-import { BRICK, CAVITY, DESIGN, SINUS } from './config.js';
+import { BRICK, CAVITY, SINUS } from './config.js';
 import {
   FRONTAL_RIGHT,
   MAXILLARY_RIGHT,
   ETHMOID_UPPER_RIGHT,
   ETHMOID_LOWER_RIGHT,
   SEPTUM,
+  MIDLINE_X,
   mirrorPolygon,
 } from './anatomy.js';
 
@@ -14,8 +15,8 @@ import {
  * Coordinates live in anatomy.js, recovered from background.png by
  * scripts/trace-sinus.mjs. This file mirrors the authored right half to make
  * the left and publishes the questions the rest of the game asks of the
- * drawing. Everything is in DESIGN space (640x480), like the rest of the
- * gameplay maths.
+ * drawing. Everything is in board space — anatomy.js has already carried the
+ * traced rings there — like the rest of the gameplay maths.
  *
  * THERE IS NO CURVE FLATTENING HERE ANY MORE. This file used to carry a
  * Bezier evaluator, because anatomy.js held hand-authored 'M'/'L'/'Q'/'C'
@@ -47,7 +48,7 @@ import {
  *   the tracts: it lights the ethmoid cells too, which hold no bricks.
  */
 
-const CX = DESIGN.width / 2;
+const CX = MIDLINE_X;
 
 /**
  * Build one stroke entry.

@@ -1,11 +1,13 @@
-import { DESIGN } from './config.js';
+import { DESIGN_FRAME, FRAME_CX, frameX, frameY } from './config.js';
 
 /**
  * The paranasal sinuses, as a coronal section — TRACED FROM assets/background.png.
  *
- * Every coordinate in this file lives in DESIGN space (640x480) and nothing
- * else in the codebase authors a point. `cavity.js` publishes the regions
- * congestion may occupy from these rings.
+ * EVERY LITERAL IN THIS FILE IS IN FRAME SPACE — the 640x480 box the painting
+ * is cover-fitted into — and `place()` below is the single point at which they
+ * become board coordinates, in whichever of the two boxes config.js chose at
+ * boot. Nothing else in the codebase authors a point. `cavity.js` publishes the regions congestion may
+ * occupy from these rings.
  *
  * MEASURED, NOT AUTHORED, AND THAT IS THE WHOLE POINT OF THIS REWRITE. This
  * file used to hold hand-written curve commands for a wireframe that
@@ -46,7 +48,38 @@ import { DESIGN } from './config.js';
  * clears the painted wall by at least 1.5px. check:nose prints that number.
  */
 
-const CX = DESIGN.width / 2;
+/**
+ * The painting's midline, in board coordinates.
+ *
+ * Exported because `cavity.js` and `sinus.js` both mirror about it and both
+ * used to derive it as `DESIGN.width / 2`. That happens to be the same number,
+ * since the frame is placed centred horizontally in both boxes — but it is the
+ * same number by coincidence rather than by construction, and the coincidence
+ * breaks the moment FRAME_CX stops being the box's midpoint. One definition, in
+ * the file that owns the geometry.
+ */
+export const MIDLINE_X = frameX(DESIGN_FRAME.width / 2);
+
+const CX = MIDLINE_X;
+
+/**
+ * Frame space -> board space.
+ *
+ * EVERY RING BELOW IS WRITTEN IN THE COORDINATES trace-sinus.mjs PRINTS, which
+ * are the 640x480 frame the painting is cover-fitted into, and this is the one
+ * place they become board coordinates. Keeping the literals in frame space is
+ * deliberate: re-running `scripts/trace-sinus.mjs` after an art re-export must
+ * stay a copy-paste, not a copy-paste-and-subtract-80.
+ *
+ * IT IS THE SAME TRANSFORM THE BACKGROUND SPRITE GETS, which is the whole
+ * point: `frameX`/`frameY` are a similarity — one scale about one centre — and
+ * the painting, these rings and the brick grid all go through them, so a ring
+ * lands on the pixel of background.png it was traced from no matter how the
+ * frame is placed. In the landscape box the placement is the identity. Move
+ * FRAME_CY or FRAME_SCALE and the rings follow the painting for free; that is
+ * why there is no second offset anywhere to keep in sync.
+ */
+const place = (poly) => poly.map(([x, y]) => [frameX(x), frameY(y)]);
 
 /**
  * Reflect a ring about the midline.
@@ -65,7 +98,7 @@ export const mirrorPolygon = (poly) => poly.map(([x, y]) => [2 * CX - x, y]).rev
  * Its roof runs out and gently down to a lateral tip, so the corner beside the
  * septum is the highest thing in the zone. Grid rows 0..2 reach into it.
  */
-export const FRONTAL_RIGHT = [
+export const FRONTAL_RIGHT = place([
   [362.2, 30.2], [370.7, 30.2], [372, 32.9], [376, 32.9], [376, 34.2], [381.3, 38.2],
   [381.3, 42.2], [384, 43.6], [384, 47.6], [386.7, 48.9], [386.7, 52.9], [392, 56.9],
   [392, 60.9], [394.7, 62.2], [398.7, 67.6], [402.7, 67.6], [406.7, 72.9], [410.7, 72.9],
@@ -79,7 +112,7 @@ export const FRONTAL_RIGHT = [
   [368, 148], [354.2, 148], [354.2, 146.7], [343.6, 137.3], [343.6, 107.6], [346.2, 106.2],
   [346.2, 88.9], [348.9, 87.6], [348.9, 46.2], [351.6, 44.9], [351.6, 40.9], [354.2, 39.6],
   [354.2, 35.6], [355.6, 35.6], [356.9, 32.9], [360.9, 32.9],
-];
+]);
 
 /**
  * The right maxillary sinus: the lower chamber, and the one the play happens in.
@@ -91,7 +124,7 @@ export const FRONTAL_RIGHT = [
  * is why the grid only offers four cell positions per side down here. Rows
  * 12..13 reach into it; the floor below y 340 is past the last grid row.
  */
-export const MAXILLARY_RIGHT = [
+export const MAXILLARY_RIGHT = place([
   [380.9, 270.2], [394.7, 270.2], [396, 272.9], [400, 272.9], [401.3, 275.6], [405.3, 275.6],
   [406.7, 278.2], [410.7, 278.2], [412, 280.9], [418.7, 280.9], [420, 283.6], [426.7, 283.6],
   [428, 286.2], [440, 286.2], [441.3, 288.9], [458.7, 288.9], [460, 291.6], [480, 291.6],
@@ -106,7 +139,7 @@ export const MAXILLARY_RIGHT = [
   [391.6, 336], [388.9, 334.7], [388.9, 330.7], [386.2, 329.3], [386.2, 325.3], [380.9, 321.3],
   [380.9, 317.3], [375.6, 313.3], [375.6, 309.3], [370.2, 305.3], [370.2, 301.3], [367.6, 300],
   [367.6, 280.9], [368.9, 280.9], [375.6, 272.9], [379.6, 272.9],
-];
+]);
 
 /**
  * The two right ethmoid air cells, between the chambers.
@@ -118,19 +151,19 @@ export const MAXILLARY_RIGHT = [
  * either. They are here so the inflammation glow lights every air space the
  * painting shows rather than only the two it can hold mucus in.
  */
-export const ETHMOID_UPPER_RIGHT = [
+export const ETHMOID_UPPER_RIGHT = place([
   [346.2, 200.9], [348, 203.6], [352, 203.6], [352, 204.9], [354.7, 206.2], [354.7, 210.2],
   [357.3, 211.6], [357.3, 220], [356, 220], [354.7, 222.7], [348.9, 222.7], [347.6, 220],
   [343.6, 220], [343.6, 218.7], [338.2, 214.7], [338.2, 206.2], [339.6, 206.2], [340.9, 203.6],
   [344.9, 203.6],
-];
+]);
 
-export const ETHMOID_LOWER_RIGHT = [
+export const ETHMOID_LOWER_RIGHT = place([
   [346.2, 238.2], [360, 238.2], [361.3, 240.9], [365.3, 240.9], [365.3, 242.2], [370.7, 246.2],
   [370.7, 254.7], [369.3, 254.7], [368, 257.3], [356, 257.3], [354.7, 260], [350.7, 260],
   [349.3, 262.7], [340.9, 262.7], [340.9, 261.3], [338.2, 260], [338.2, 248.9], [340.9, 247.6],
   [340.9, 243.6], [342.2, 243.6],
-];
+]);
 
 /**
  * The septum: the midline, spanning the painted ridge between the chambers.
@@ -142,7 +175,7 @@ export const ETHMOID_LOWER_RIGHT = [
  * is the line the two halves are read against, and because `SEPTUM_X` is what
  * `GameScene` asks which sinus a broken brick belonged to.
  */
-export const SEPTUM = [
+export const SEPTUM = place([
   [320, 170.7],
   [320, 362.2],
-];
+]);

@@ -1,7 +1,7 @@
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import { Scene } from '../core/scene-manager.js';
 import { loadBundle } from '../core/assets.js';
-import { DESIGN } from '../game/config.js';
+import { DESIGN, frameDrop } from '../game/config.js';
 import { applyImageAssets } from '../game/textures.js';
 import { makeText } from '../game/ui.js';
 import { MenuScene } from './menu-scene.js';
@@ -23,22 +23,30 @@ export class BootScene extends Scene {
   }
 
   enter() {
+    // Composed against the authored frame like every other card screen, and
+    // dropped to the middle of the portrait board by the same helper — without
+    // it the wordmark and the bar sit in the top third of a 854-tall box with
+    // 400 empty pixels under them. See frameDrop().
+    this.content = new Container();
+    this.content.y = frameDrop();
+    this.view.addChild(this.content);
+
     const title = makeText('BRICKSTORM', { size: 44, anchor: 0.5, title: true, color: 0x35d0d8 });
     title.position.set(DESIGN.width / 2, 180);
-    this.view.addChild(title);
+    this.content.addChild(title);
 
     this.status = makeText('YÜKLENİYOR', { size: 12, anchor: 0.5, color: 0x6a7bb5 });
     this.status.position.set(DESIGN.width / 2, 268);
-    this.view.addChild(this.status);
+    this.content.addChild(this.status);
 
     const frame = new Graphics();
     frame
       .roundRect((DESIGN.width - BAR_W) / 2, 290, BAR_W, BAR_H, BAR_H / 2)
       .stroke({ width: 1.5, color: 0x35d0d8, alpha: 0.6 });
-    this.view.addChild(frame);
+    this.content.addChild(frame);
 
     this.fill = new Graphics();
-    this.view.addChild(this.fill);
+    this.content.addChild(this.fill);
 
     loadBundle('preload', (p) => {
       this.progress = p;
@@ -54,6 +62,11 @@ export class BootScene extends Scene {
         this.done = true;
         this.status.text = 'YÜKLEME HATASI - DEVAM EDİLİYOR';
       });
+  }
+
+  /** The board's floor moved — see SceneManager.resize. */
+  resize() {
+    this.content.y = frameDrop();
   }
 
   update(dt) {

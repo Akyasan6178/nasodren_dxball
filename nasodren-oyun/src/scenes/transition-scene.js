@@ -26,10 +26,29 @@ const CENTER_SIZE = 160;
  */
 const CENTER_KEYS = ['transitionAsset', 'loadingHeart', 'loadingFlame'];
 
-const TIP_TITLE_Y = 350;
-const TIP_BODY_Y = 372;
-const TIP_RIGHT_MARGIN = 20;
-const TIP_WRAP_WIDTH = 230;
+/**
+ * The tip block, measured DOWN FROM THE BOTTOM OF THE CENTREPIECE rather than
+ * from either edge of the board.
+ *
+ * IT USED TO BE A RIGHT-HAND COLUMN — anchored to `DESIGN.width - 20`, wrapped
+ * at 230, sitting beside the centrepiece. That works on a 640-wide board and
+ * not at all on a 480-wide one: a 230px column next to a 160px centrepiece
+ * leaves the two overlapping. So the tip is centred UNDER the art in both
+ * boxes, which is how a portrait screen reads it anyway — top to bottom rather
+ * than left to right.
+ *
+ * MEASURING FROM THE ART IS WHAT MAKES ONE LAYOUT SERVE BOTH BOXES. The art is
+ * centred on the box, so this lands the title at y 354 on the 480-tall
+ * landscape board — within 4px of the 350 it was authored at — and at y 541 on
+ * the 854-tall portrait one, in both cases clear of a four-line body and of
+ * the loading caption 26px off the floor.
+ */
+const ART_CLEARANCE = CENTER_SIZE / 2 + BOB_AMPLITUDE + 22;
+const TIP_LINE_GAP = 22;
+const TIP_WRAP_WIDTH = 400;
+
+/** Where the tip title sits, for the board's current height. */
+const tipTitleY = () => DESIGN.height / 2 + ART_CLEARANCE;
 
 /** Same heavy stroke/shadow treatment on every label here — see heavyText(). */
 const FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
@@ -123,19 +142,21 @@ export class TransitionScene extends Scene {
   _buildTip() {
     const tip = TIPS[Math.floor(cosmeticRandom() * TIPS.length)];
 
-    const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8 });
-    title.anchor.set(1, 0);
-    title.position.set(DESIGN.width - TIP_RIGHT_MARGIN, TIP_TITLE_Y);
+    const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8, align: 'center' });
+    title.anchor.set(0.5, 0);
+    title.position.set(DESIGN.width / 2, tipTitleY());
+    this.tipTitle = title;
     this.view.addChild(title);
 
     const body = heavyText(tip, {
       size: 13,
       color: 0xffffff,
-      align: 'right',
+      align: 'center',
       wordWrapWidth: TIP_WRAP_WIDTH,
     });
-    body.anchor.set(1, 0);
-    body.position.set(DESIGN.width - TIP_RIGHT_MARGIN, TIP_BODY_Y);
+    body.anchor.set(0.5, 0);
+    body.position.set(DESIGN.width / 2, tipTitleY() + TIP_LINE_GAP);
+    this.tipBody = body;
     this.view.addChild(body);
   }
 
@@ -145,10 +166,16 @@ export class TransitionScene extends Scene {
    * top is already where it belongs.
    */
   resize() {
-    // Both re-read rather than one: the art is centred on the box, so it moves
-    // with the floor even though it is not anchored to it.
+    // All four re-read rather than one: the art is centred on the box, so it
+    // moves with the floor even though it is not anchored to it, and the tip
+    // block is measured up from the floor outright.
     this.art.y = DESIGN.height / 2;
+    // The bob in update() reads this, so a resize that forgot it would snap the
+    // centrepiece back to the old floor on the very next frame.
+    this._baseY = this.art.y;
     this.caption.y = DESIGN.height - 26;
+    this.tipTitle.y = tipTitleY();
+    this.tipBody.y = tipTitleY() + TIP_LINE_GAP;
   }
 
   update(dt) {

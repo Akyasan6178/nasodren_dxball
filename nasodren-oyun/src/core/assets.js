@@ -28,9 +28,9 @@ import { Assets } from 'pixi.js';
  * Texture-source options for a photographic PNG that gets drawn small.
  *
  * background.png is 1920x1080 and every frame paints it into the 640x480
- * design box, so the sprite is MINIFIED on both axes — and unevenly: 0.33x
- * across, 0.44x down, before the viewport's own uniform scale is applied on
- * top. A minified texture read with a single bilinear tap averages four source
+ * authored frame — cover-fitted at 0.44x on both axes, then cropped by the
+ * narrower portrait board rather than squeezed — so the sprite is MINIFIED
+ * before the viewport's own uniform scale is applied on top. A minified texture read with a single bilinear tap averages four source
  * texels where nine or sixteen actually contributed, and the detail that gets
  * dropped does not vanish quietly: it aliases into the shimmering, blocky
  * "crunch" the artwork was reported with. Nothing about the PNG is wrong.

@@ -19,12 +19,20 @@ import {
  * Leftover space becomes letterbox/pillarbox bars, and a mask stops anything
  * from bleeding into them.
  *
- * IT USED TO BE FIXED-ASPECT, and the box is still 640 wide at every size —
- * see resolveDesignHeight in config.js for why the width is the anchor. What
- * changed is the height: on a screen taller than 4:3 the box grows downward to
- * meet it, rather than letterboxing into a strip a third of the display tall.
+ * IT USED TO BE FIXED-ASPECT AND ALWAYS LANDSCAPE. There are two boxes now —
+ * 640x480 and 480x854 — and config.js picks one from the screen's shape before
+ * this class is constructed, so nothing in here has to know which it got. The
+ * width of whichever box it is stays fixed at every size (see
+ * resolveDesignHeight in config.js for why the width is the anchor) and the
+ * height is the free axis, growing downward on a screen taller than the box.
+ *
  * A phone held upright used to be shown a "rotate your device" card instead of
- * the game.
+ * the game, then an adaptive 640-wide board that fitted the screen's width by
+ * shrinking everything on it. The narrower portrait box is what finally makes
+ * the ball and the paddle physically bigger there, since the fit-to-width
+ * scale is the only thing that decides that — and giving the landscape screen
+ * its own box back is what stops a widescreen monitor being handed a tall
+ * narrow strip in exchange.
  *
  * THIS CLASS OWNS THAT DECISION for the whole codebase. It is the only caller
  * of `applyDesignHeight`, it is the only thing here that knows the screen
@@ -94,6 +102,13 @@ export class Viewport {
     // rests, and Input's drag-anywhere touch mapping makes the strip live
     // control surface rather than a dead bar. A quarter is still left on top,
     // which is what the HUD grows into and what keeps a notch clear of it.
+    //
+    // THERE IS MUCH LESS OF IT TO SHARE OUT NOW. A 480x854 board on a 390x844
+    // phone leaves 150 CSS pixels against the 500 the old always-landscape box
+    // left, so this is a nudge rather than the load-bearing decision it used to
+    // be. The test is the SCREEN's shape rather than the board's, which matters
+    // on the rotated-after-boot case: a portrait board on a screen that has
+    // since turned landscape wants its slack split evenly like any pillarbox.
     const slack = sh - this.height * scale;
     this.root.y = Math.round(slack * (sh > sw ? 0.25 : 0.5));
 

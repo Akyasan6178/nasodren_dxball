@@ -17,9 +17,11 @@
       style.css is imported by main.js, so in dev it is injected by JavaScript
       and in production it is a <link> the browser must still fetch. Either way
       there is a window where the DOM exists and the stylesheet does not. That
-      window is the flash: white background, an unstyled "Classic Turbo" button,
-      and the rotate-prompt SVG expanding to fill the viewport with default
-      black fill.
+      window is the flash: white background and an unstyled "Classic Turbo"
+      button. It used to include a rotate-prompt SVG expanding to fill the
+      viewport with default black fill; that prompt is gone with the portrait
+      pivot, but the gate below is kept — it is what makes the window invisible
+      for whatever the overlay holds next.
 
       Everything needed to make that window invisible lives here and nowhere
       else. Keep it small; it blocks the first paint.

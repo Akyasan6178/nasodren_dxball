@@ -188,19 +188,27 @@ body[data-scene="menu"] .mode {
   border-color: rgba(255, 210, 63, 0.5);
 }
 
-/* =============================================== portrait / rotation ==== */
+/* ====================================================== portrait ======== */
 
-/* THERE IS NO ROTATE PROMPT ANY MORE, and the reason it existed is worth
-   keeping: the board was a fixed 4:3, so on a phone held upright the
-   letterboxed playfield collapsed to roughly a third of the screen, and asking
-   for landscape beat shipping that. The board's height now follows the screen
-   instead — see resolveDesignHeight in game/config.js — so upright is a
-   supported way to hold the game rather than a state to be escaped, and a card
-   covering the whole viewport would be hiding a playable board.
+/* THERE IS NO ROTATE PROMPT, AND THERE IS NOT GOING TO BE ONE. The stylesheet
+   used to carry a @media (max-aspect-ratio: 3/4) card telling the player to
+   turn their phone sideways, because the board was a fixed 4:3 box and upright
+   collapsed it to about a third of the screen. Both the card and the markup
+   behind it are gone, and so is the board it existed to apologise for: there
+   are two design boxes now — 640x480 and 480x854 — and game/config.js picks one
+   from the screen's own shape at boot, so upright is a shape the game is DRAWN
+   for rather than a state to be escaped from.
 
-   The markup went with it. If a prompt is ever wanted again, it belongs behind
-   a much narrower condition than "portrait" — something like an aspect so
-   extreme that even the adaptive box cannot make the board useful. */
+   Nothing in CSS participates in that choice and nothing here should start to.
+   The layout lives entirely in the design box; a stylesheet that also had an
+   opinion about orientation would be a second source of truth for the same
+   decision. A phone rotated AFTER boot keeps the box it started in and Viewport
+   pillarboxes it, which is playable and needs no card either.
+
+   A prompt would now be actively wrong — it would be covering a board that is
+   already correct — so if one is ever wanted again it belongs behind an aspect
+   so extreme that even the adaptive box cannot make the board useful, and not
+   behind "portrait" or "landscape". */
 
 /* Safe-area padding for the notch. The canvas itself is full-bleed by design
    (viewport-fit=cover in index.html), and Viewport keeps a quarter of the
@@ -232,10 +240,30 @@ body[data-scene="menu"] .mode {
 
 /* ======================================================= adaptations ==== */
 
-@media (max-width: 480px) {
+/* The switcher floats over the board's bottom-right corner. On a phone the
+   portrait board reaches within a few pixels of both side walls, so the chip
+   is centred there instead of hugging an edge it would otherwise sit on top
+   of — and made a little smaller, since it is competing with the board rather
+   than sitting in a pillarbox beside it. */
+@media (max-width: 560px) {
+  .mode {
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, 8px);
+  }
+
+  body[data-scene="menu"] .mode {
+    transform: translate(-50%, 0);
+  }
+
+  .mode:active {
+    transform: translate(-50%, 0) scale(0.985);
+  }
+
   .mode__track {
     min-width: 162px;
   }
+
   .mode__option {
     padding: 8px 12px;
     font-size: 10.5px;

@@ -9,6 +9,11 @@ import {
   CORRUPTION,
   DESIGN,
   DESIGN_FRAME,
+  FRAME_CX,
+  FRAME_CY,
+  FRAME_SCALE,
+  SECTION,
+  frameY,
   difficultyControlScale,
   frameDrop,
   difficultySpeedScale,
@@ -28,6 +33,7 @@ import {
   SCORE,
   VFX,
   WALL,
+  WALL_TOP,
 } from '../game/config.js';
 import { LEVELS } from '../game/levels.js';
 import { TEX } from '../game/textures.js';
@@ -58,11 +64,16 @@ const MAX_BALLS = 8;
  *
  * ONLY THE TRANSVERSE LINES, NOT THE PAINTED GRID'S CONVERGING ONES, and the
  * reason is measured rather than aesthetic. background.png's floor grid is a
- * radial family through a vanishing point at design (322, 334) whose spacing
+ * radial family through a vanishing point at frame (322, 334) whose spacing
  * widens by 0.96px per pixel of depth: 139px apart where the painting ends at
- * y 480, and 502px apart by y 860. Continuing it truthfully into a portrait
- * lane puts exactly one line on a 640-wide board. It is geometry that only
- * works at the depth it was painted for.
+ * the frame's bottom, and 502px apart 380px below it. Continuing it truthfully
+ * into the portrait lane puts about two lines on the board. It is geometry
+ * that only works at the depth it was painted for.
+ *
+ * THE LANE IS 374px IN THE PORTRAIT BOX, against the 80 the landscape box can
+ * reach at its tallest, so this chrome carries far more of the screen there
+ * than it was written for and is worth looking at on a real phone if the art
+ * is ever re-exported.
  *
  * The transverse lines have no such problem, and they earn their place twice:
  * they keep the lane reading as a floor plane rather than a void, and they
@@ -82,7 +93,22 @@ const MAX_BALLS = 8;
  * here as the top of the open lane: below this line there is nothing painted
  * for the ball to be read against, whatever the board's height is.
  */
-const MAXILLARY_FLOOR = 388;
+const MAXILLARY_FLOOR = frameY(SECTION.bottom);
+
+/**
+ * Where the painting stops and the open lane begins, in board coordinates.
+ *
+ * NOT THE SAME LINE AS MAXILLARY_FLOOR. The section's lowest painted point is
+ * the maxillary floor; the frame carries another 92 authored pixels of painted
+ * ground below it, and that ground is what the ball falls across first. Only
+ * past THIS line is there nothing painted at all — 47 design pixels of it in
+ * portrait, down from the 374 before the frame was re-centred.
+ *
+ * Written down once because three pieces of chrome need the same line and the
+ * old code used the literal `DESIGN_FRAME.height` for all of them, which was
+ * only correct while the frame sat unscaled at the top-left corner.
+ */
+const FRAME_BOTTOM = frameY(DESIGN_FRAME.height);
 
 const FLOOR_STEP = 22;
 const FLOOR_GROWTH = 0.22;
@@ -370,8 +396,10 @@ export class GameScene extends Scene {
     //
     // Scale uniformly by whichever axis needs more coverage and let the surplus
     // hang off the sides. It is free to let it overflow: Viewport installs a
-    // 640x480 mask on its root (see core/viewport.js), so the crop is already
-    // being done by the same mask that draws the letterbox bars.
+    // mask the size of the design box on its root (see core/viewport.js), so
+    // the crop is already being done by the same mask that draws the letterbox
+    // bars — and on the portrait board that mask is doing most of the work,
+    // since the box is narrower than the frame the painting is fitted to.
     //
     // WHAT THIS COSTS: 16:9 into 4:3 crops 240px from each end of the source,
     // leaving a 1440x1080 window onto the art. Anything composed hard against
@@ -379,21 +407,53 @@ export class GameScene extends Scene {
     // than the distortion did, `Math.min` here letterboxes instead — but the
     // real answer is a 4:3 re-export, which also fixes the resolution ceiling
     // noted below.
-    // FITTED TO DESIGN_FRAME, NOT TO DESIGN. The board's floor moves with the
-    // screen (see resolveDesignHeight in config.js) and the painting must not
-    // follow it: anatomy.js's rings are traced from this image cover-fitted
-    // into 640x480, so cover-fitting it into a 640x860 portrait box would
-    // scale the painted nose up by 1.8x and leave every brick-containment
-    // coordinate — and every bone cell sitting on a wall — pointing at nothing.
-    // The painting stays pinned to the top 480px and the extra height below it
-    // is open board.
+    // FITTED TO DESIGN_FRAME, NOT TO DESIGN, AND THIS IS THE ONE LINE MOST
+    // WORTH READING TWICE. The obvious move on a 480x854 board is to cover it
+    // outright —
+    //
+    //     Math.max(DESIGN.width / tex.width, DESIGN.height / tex.height)
+    //
+    // — which for a 1920x1080 source is 0.79 against the frame's 0.44: the
+    // painted nose comes up 1.78x and fills the screen beautifully, and every
+    // single piece of geometry that has to agree with it breaks. anatomy.js's
+    // rings are traced from this image cover-fitted into 640x480; scale the
+    // image and not the rings and the maxillary chambers end up at board x 567
+    // on a board 480 wide, with every bone cell sitting on a wall that is no
+    // longer under it. The check:nose script is the thing that would tell you.
+    //
+    // So the painting is cover-fitted to the FRAME, at the frame's own scale,
+    // and the frame is then PLACED in the board by frameX/frameY — one scale
+    // about one centre, applied to the painting, the traced rings and the brick
+    // grid alike. THIS IS ALSO WHY ONE LINE SERVES BOTH BOXES: in landscape the
+    // placement is the identity, so a widescreen monitor gets the painting
+    // exactly as authored; in portrait it zooms 1.15x about a centre chosen to
+    // sit the nose in the middle of the play area, and the board CROPS the
+    // sides rather than squeezing them. Since the section only spans frame
+    // x 136..504 what is lost is cheek. The nose ends up 317px across on a
+    // 390px phone against the 207px it was before any of this, and it got there
+    // without moving a traced coordinate.
+    //
+    // The extra height below the frame is open board — see FRAME_BOTTOM and
+    // _drawFieldChrome, which give it a floor to read as.
     const cover = Math.max(
       DESIGN_FRAME.width / background.texture.width,
       DESIGN_FRAME.height / background.texture.height,
     );
+    // ANCHOR 0.5 AND THE FRAME'S CENTRE, not the box's. `FRAME_CX` is the box
+    // centre horizontally, so that part is the same thing; `FRAME_CY` is not,
+    // and the difference is deliberate — see FRAME_CY in config.js, which
+    // centres the PAINTED SECTION in the play area rather than the frame in the
+    // board, because the frame carries 30px of empty painting above the brow
+    // and 92px below the maxillary floor.
+    //
+    // FRAME_SCALE ON TOP OF THE COVER FIT is the zoom. It multiplies rather
+    // than replaces: the cover fit is what makes the painting fill the frame,
+    // and this is what makes the frame fill more of the board. Every traced
+    // ring and every brick cell is multiplied by the same factor about the same
+    // centre by frameX/frameY, so nothing needs realigning afterwards.
     background.anchor.set(0.5);
-    background.scale.set(cover);
-    background.position.set(DESIGN_FRAME.width / 2, DESIGN_FRAME.height / 2);
+    background.scale.set(cover * FRAME_SCALE);
+    background.position.set(FRAME_CX, FRAME_CY);
 
     // THE REMAINING CEILING IS THE ASSET, NOT THE CODE, and it is worth writing
     // down so the next person does not go looking for another filter flag. With
@@ -437,21 +497,31 @@ export class GameScene extends Scene {
     // Side and top walls: structural chrome, and the collision surfaces. The
     // nose floats clear of all three by well over a hundred pixels, so these
     // are the boundary on every level again.
+    // THE WALLS STOP AT FIELD.bottom, NOT AT THE BOARD'S FLOOR, and on the
+    // portrait board those are 92 pixels apart. What is below the death line is
+    // the thumb zone: the strip the hand dragging the paddle rests on, which
+    // Input treats as live control surface and the ball never reaches. Walling
+    // it in would say it is playfield.
     const wallFill = { color: 0x232a4d };
-    g.rect(0, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
-    g.rect(DESIGN.width - WALL, HUD_H, WALL, DESIGN.height - HUD_H).fill(wallFill);
-    g.rect(0, HUD_H, DESIGN.width, WALL).fill(wallFill);
+    const wallH = FIELD.bottom - HUD_H;
+    g.rect(0, HUD_H, WALL, wallH).fill(wallFill);
+    g.rect(DESIGN.width - WALL, HUD_H, WALL, wallH).fill(wallFill);
+    // WALL_TOP, NOT WALL: in portrait the top wall is thickened into a shelf
+    // for the power-up badge row, so the row has something solid under it and
+    // the ball turns around below it. See WALL_TOP in config.js.
+    g.rect(0, HUD_H, DESIGN.width, WALL_TOP).fill(wallFill);
 
-    // The portrait lane — see FLOOR_STEP. Nothing to draw on a board that is
-    // only as tall as the painting.
-    if (DESIGN.height > DESIGN_FRAME.height) {
+    // The portrait lane — see FLOOR_STEP. The guard is kept rather than
+    // dropped now that every board is portrait: a board is still allowed to be
+    // no taller than the painting, and there is nothing to draw when it is.
+    if (DESIGN.height > FRAME_BOTTOM) {
       const inner = DESIGN.width - WALL * 2;
 
       // Blend the painting's bottom edge into the backdrop first, so the floor
       // lines below are drawn over a settled ground rather than across a step.
       const bands = 5;
       for (let i = 0; i < bands; i++) {
-        g.rect(WALL, DESIGN_FRAME.height - SEAM_H + (SEAM_H * i) / bands, inner, SEAM_H / bands + 1)
+        g.rect(WALL, FRAME_BOTTOM - SEAM_H + (SEAM_H * i) / bands, inner, SEAM_H / bands + 1)
           .fill({ color: 0x0b0b16, alpha: (SEAM_ALPHA * (i + 1)) / bands });
       }
 
@@ -459,7 +529,7 @@ export class GameScene extends Scene {
       // paddle. Even spacing reads as a ledger ruled across the board; a gap
       // that grows toward the viewer reads as ground going away from them,
       // which is what the painted grid above it is doing.
-      let y = DESIGN_FRAME.height;
+      let y = FRAME_BOTTOM;
       for (let n = 0; y < PADDLE.y - FLOOR_STEP; n++) {
         g.moveTo(WALL, y)
           .lineTo(DESIGN.width - WALL, y)
@@ -469,8 +539,8 @@ export class GameScene extends Scene {
     }
 
     const edge = { width: 1.5, color: 0x35d0d8, alpha: 0.5 };
-    g.moveTo(WALL, FIELD.top).lineTo(WALL, DESIGN.height).stroke(edge);
-    g.moveTo(DESIGN.width - WALL, FIELD.top).lineTo(DESIGN.width - WALL, DESIGN.height).stroke(edge);
+    g.moveTo(WALL, FIELD.top).lineTo(WALL, FIELD.bottom).stroke(edge);
+    g.moveTo(DESIGN.width - WALL, FIELD.top).lineTo(DESIGN.width - WALL, FIELD.bottom).stroke(edge);
     g.moveTo(WALL, FIELD.top).lineTo(DESIGN.width - WALL, FIELD.top).stroke(edge);
 
     // Faint deadline so the drop zone reads clearly.
@@ -1270,7 +1340,7 @@ export class GameScene extends Scene {
       ball.update(dt);
 
       if (ball.dead) {
-        this.particles.burst(ball.x, Math.min(ball.y, DESIGN.height - 4), {
+        this.particles.burst(ball.x, Math.min(ball.y, FIELD.bottom - 4), {
           count: 10,
           color: 0xff4d5a,
           speed: 90,
@@ -1307,7 +1377,7 @@ export class GameScene extends Scene {
       if (this.boss) this._collideBoss(ball);
       this._collidePaddle(ball);
 
-      if (ball.y - ball.radius > DESIGN.height + 8) {
+      if (ball.y - ball.radius > FIELD.bottom + 8) {
         ball.dead = true;
         return;
       }
@@ -1640,7 +1710,7 @@ export class GameScene extends Scene {
         continue;
       }
 
-      if (capsule.y - capsule.halfH > DESIGN.height) this._removeCapsule(capsule);
+      if (capsule.y - capsule.halfH > FIELD.bottom) this._removeCapsule(capsule);
     }
   }
 
@@ -2050,19 +2120,21 @@ export class GameScene extends Scene {
   /**
    * Where the serve prompt sits.
    *
-   * At the frame height it stays at the authored y 300, over the nose, which is
-   * where it has always been. On a taller board there is an open lane between
-   * the maxillary floor and the paddle, and the prompt belongs in the middle of
-   * it, clear of both: it stops covering the congestion the player is about to
-   * aim at, and it stops sitting on the paddle.
+   * On a board no taller than the painting — which is the landscape box at its
+   * base height — it stays at the authored y 300 over the nose, where it has
+   * always been. Otherwise there is an open lane between the maxillary floor
+   * and the paddle, and the prompt belongs in the middle of it, clear of both:
+   * it stops covering the congestion the player is about to aim at, and it
+   * stops sitting on the paddle. On the 480x854 board that puts it at y 594,
+   * with the paddle's top edge at 793.
    *
-   * MEASURED FROM MAXILLARY_FLOOR, NOT FROM THE FRAME'S BOTTOM EDGE. Using
-   * y 480 as the top of the lane works only while the lane is long: at
-   * MAX_DESIGN_HEIGHT 560 the midpoint of 480..522 is y 501, and a 26px
-   * centre-anchored line there overlaps a paddle whose top edge is at 515.
+   * MEASURED FROM MAXILLARY_FLOOR, NOT FROM THE FRAME'S BOTTOM EDGE, which
+   * mattered when the lane was short: the old adaptive board's midpoint of
+   * 480..522 was y 501, and a 26px centre-anchored line there overlapped a
+   * paddle whose top edge was at 515.
    */
   _messageY() {
-    if (DESIGN.height <= DESIGN_FRAME.height) return 300;
+    if (DESIGN.height <= FRAME_BOTTOM) return frameY(300);
     return (MAXILLARY_FLOOR + PADDLE.y) / 2;
   }
 

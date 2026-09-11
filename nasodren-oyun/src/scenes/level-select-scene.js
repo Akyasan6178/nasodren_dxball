@@ -19,10 +19,24 @@ const PREVIEW_CELL_W = PREVIEW_W / GRID.cols;
 const PREVIEW_CELL_H = PREVIEW_CELL_W * (GRID.cellH / GRID.cellW);
 const PREVIEW_H = PREVIEW_CELL_H * GRID.rows;
 
-const COLS = 4;
 const CELL_W = 132;
 const CELL_H = 74;
 const GAP = 12;
+/** Clear space wanted between the outermost tiles and the board's walls. */
+const SIDE_MARGIN = 30;
+
+/**
+ * AS MANY COLUMNS AS THE BOX HAS ROOM FOR, WHICH IS THE ARITHMETIC AND NOT A
+ * TASTE CALL. Four 132px tiles plus three 12px gaps is 564: it fits the
+ * 640-wide landscape board with 38px to spare either side and overflows the
+ * 480-wide portrait one by 84px, which would run the picker under both walls.
+ * So this resolves to 4 in landscape — the authored layout — and 3 in
+ * portrait, where 420 leaves the 30px margin asked for above.
+ *
+ * Derived rather than branched on IS_PORTRAIT because it is a fact about the
+ * width: change CELL_W or the box and the count follows without being told.
+ */
+const COLS = Math.max(2, Math.floor((DESIGN.width - 2 * SIDE_MARGIN + GAP) / (CELL_W + GAP)));
 
 /**
  * Grid-based level progression screen.

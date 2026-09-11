@@ -205,15 +205,22 @@ check(
   `the section clears the paddle band (lowest ${maxY.toFixed(0)}, paddle at ${PADDLE.y})`,
 );
 // NOT ASSERTED AGAINST FIELD.top, and that is deliberate rather than an
-// oversight in the bounds above. The painted frontal chambers reach y 30,
-// which is up behind the HUD — the art was composed for the full 16:9 frame and
-// the cover-fit crop keeps all of it. Nothing is wrong with that: the top of a
-// chamber the player cannot see is simply top of a chamber no brick can occupy,
-// and the grid starts at GRID.y anyway. It is reported so the number is not
-// mistaken for a fault the next time someone reads this output.
+// oversight in the bounds above. In the landscape box the painted frontal
+// chambers reach y 30, which is up behind the HUD: the art was composed for the
+// full 16:9 frame and the cover-fit keeps all of it. Nothing is wrong with
+// that — the top of a chamber the player cannot see is simply top of a chamber
+// no brick can occupy, and the grid starts at GRID.y anyway.
+//
+// The portrait box does not have the problem at all any more: its frame is
+// placed to centre the section in the play area, which puts the brow a hundred
+// pixels clear of the bar. Both cases are reported rather than asserted, so the
+// number is not mistaken for a fault the next time someone reads this output.
 notes.push(
-  `note  the section starts at y ${minY.toFixed(0)}, above FIELD.top ${FIELD.top} — ` +
-    `${(FIELD.top - minY).toFixed(0)}px of painted chamber sits behind the HUD`,
+  minY < FIELD.top
+    ? `note  the section starts at y ${minY.toFixed(0)}, above FIELD.top ${FIELD.top} — ` +
+        `${(FIELD.top - minY).toFixed(0)}px of painted chamber sits behind the HUD`
+    : `note  the section starts at y ${minY.toFixed(0)}, clear of FIELD.top ${FIELD.top} by ` +
+        `${(minY - FIELD.top).toFixed(0)}px`,
 );
 
 /* --- 6. the tracts must have room for a layout at all ------------------- */
@@ -228,11 +235,31 @@ const cellBox = (c, r, shape) => {
   const by = GRID.y + r * GRID.cellH + GRID.gap / 2 + (BRICK_H - h) * 0.5;
   return [bx, by, bx + w, by + h];
 };
+/**
+ * A cell has to be inside the BOARD as well as inside a tract.
+ *
+ * THIS BECAME LOAD-BEARING WHEN THE PORTRAIT FRAME STARTED ZOOMING. The grid is
+ * anchored to the painting, not to the box, so columns that hang off the edge
+ * of a narrower board are normal and harmless — until the zoom pushes a column
+ * that used to be clear of the wall into it. In the portrait box c2 and c10 now
+ * straddle the side walls: still inside their painted chamber, so the tract
+ * test alone would call them legal, and a level that used one would draw a
+ * brick half underneath the wall. No layout does, and this is what keeps it
+ * that way. In landscape every column is on the board and this never fires.
+ */
+const insideWalls = (c, r, shape) => {
+  const [x0, , x1] = cellBox(c, r, shape);
+  return x0 >= FIELD.left && x1 <= FIELD.right;
+};
+
 const usable = (c, r, shape) => {
   const box = BRICK.shapes[shape];
-  return rectInsideTract(
-    ...cellBox(c, r, shape),
-    tractMargin(BRICK_W * box.w, BRICK_H * box.h),
+  return (
+    insideWalls(c, r, shape) &&
+    rectInsideTract(
+      ...cellBox(c, r, shape),
+      tractMargin(BRICK_W * box.w, BRICK_H * box.h),
+    )
   );
 };
 

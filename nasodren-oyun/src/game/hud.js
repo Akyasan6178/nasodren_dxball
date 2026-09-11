@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
-import { DESIGN, HUD, HUD_H, hudLift } from './config.js';
+import { DESIGN, HUD, HUD_H, HUD_UNIT, IS_PORTRAIT, hudLift } from './config.js';
 import { makeText } from './ui.js';
 import { ICONS } from './powerup-icons.js';
 import { TEX } from './textures.js';
@@ -7,14 +7,21 @@ import { TEX } from './textures.js';
 /**
  * HUD metrics at scale 1, in design pixels.
  *
- * EVERY NUMBER HERE IS MULTIPLIED BY `HUD.scale`, which is 1 on a desktop and
- * up to 1.8 on a phone — see resolveHudScale in config.js. The bar was
- * authored for a screen where 36 design pixels of it come out around 68 CSS
- * pixels tall; on a 390px-wide phone the same bar is 22 CSS pixels and its
- * 22px pause glyph lands at 13, which is below the size anything can be read
- * or tapped at. Scaling the contents rather than the container is what keeps
- * the right-anchored lives inside the board: a container scale would push
- * x 626 out to x 1127.
+ * EVERY NUMBER HERE IS MULTIPLIED BY `HUD.scale * HUD_UNIT` — see `this.k`
+ * below, and never use HUD.scale on its own in this file. The bar was authored
+ * for a screen where 36 design pixels of it come out around 68 CSS pixels tall;
+ * on a 390px-wide phone the same bar is 22 CSS pixels and its 22px pause glyph
+ * lands at 13, which is below the size anything can be read or tapped at.
+ *
+ * THE TWO FACTORS ARE DIFFERENT KINDS OF THING. HUD_UNIT is the BOX's authored
+ * bar size — 1 in landscape, 1.39 in portrait, fixed at load — and HUD.scale is
+ * what the runtime adds on top for the screen actually in front of the player.
+ * Multiplying both into one number is what makes a portrait bar 35% bigger
+ * everywhere at once: the digits, the hearts, the badges and the bar itself.
+ *
+ * Scaling the contents rather than the container is what keeps the
+ * right-anchored lives inside the board: a container scale would push x 626 out
+ * to x 1127.
  *
  * THE BAR GROWS UPWARD, into the letterbox space above the board, because
  * everything below y 36 is spoken for — the top wall at 36..44 and row 0's
@@ -35,7 +42,6 @@ const M = {
 
   lifeIcon: 16,
   lifeGap: 8,
-  lifeMargin: 14,
 
   powerIcon: 15,
   powerGap: 5,
@@ -44,14 +50,41 @@ const M = {
   powerRowGap: 24,
 
   /**
-   * The pause toggle's slot, centred in the one span of the bar nothing else
-   * reaches into: the level text is centred and the lives are right-anchored,
-   * so 450 has a clear lane. `_applyLevelText` is what keeps it clear when the
-   * scale grows the level text toward it.
+   * The pause toggle's margin from the bar's right edge.
+   *
+   * IT USED TO BE AN ABSOLUTE x OF 450, chosen as the one span of the 640-wide
+   * bar nothing else reached into. The 480-wide portrait bar has no such span —
+   * 450 is underneath the right-anchored lives — so the toggle takes the right
+   * edge outright and the lives fall back from it. That is the better place for
+   * it on a phone anyway: under the thumb rather than out in the middle.
    */
-  pauseCx: 450,
+  pauseMargin: 12,
   pauseIcon: 22,
+
+  /** Clear space between the pause glyph and the last heart. */
+  pauseLivesGap: 12,
+
+  /** Drop below the bar's bottom edge for the badge row, when it sits there. */
+  powerRowDrop: 6,
 };
+
+/**
+ * Whether the power-up badges get a line of their own under the bar.
+ *
+ * FIVE REGIONS DO NOT FIT ACROSS 480 DESIGN PIXELS at the size the portrait bar
+ * is now drawn at. Score, badges, level, hearts and the pause toggle fitted
+ * comfortably across 640 and fitted across 480 only while everything was small;
+ * once the bar grew 35% the badge row reached past the middle and
+ * `_applyLevelText` started hiding the level indicator outright — which is one
+ * of the three things the enlargement was asked for.
+ *
+ * So in portrait the badges drop to their own line immediately under the bar,
+ * in the band the re-centred painting opened up above the brow, and the level
+ * gets the middle of the bar to itself. In landscape they stay inline, where
+ * there has always been room and where there is painting immediately below the
+ * bar to drop onto.
+ */
+const POWER_ROW_BELOW = IS_PORTRAIT;
 
 /**
  * A tap target of at least this many CSS pixels, whatever the board's scale.
@@ -121,6 +154,17 @@ export class Hud extends Container {
 
   /* ------------------------------------------------------------ layout -- */
 
+  /**
+   * The multiplier every metric in `M` is drawn at.
+   *
+   * One place, because HUD.scale alone is the bug this replaced: it is only
+   * half the factor, and a method that forgot HUD_UNIT would draw a
+   * correctly-sized bar with landscape-sized glyphs inside it.
+   */
+  get k() {
+    return HUD.scale * HUD_UNIT;
+  }
+
   /** The bar's top edge, which is above y 0 whenever the scale is above 1. */
   get top() {
     return -hudLift();
@@ -138,22 +182,40 @@ export class Hud extends Container {
    * the lane `_applyLevelText` keeps clear for it can never disagree.
    */
   pauseSlot(viewportScale = 1) {
-    const k = HUD.scale;
+    const k = this.k;
     const size = M.pauseIcon * k;
     const tap = Math.min(TAP_MAX, Math.max(44, TAP_CSS / (viewportScale || 1)));
+    const x = DESIGN.width - (M.pauseMargin + M.pauseIcon / 2) * k;
 
-    return { x: M.pauseCx, y: this.midY, size, hitW: tap, hitH: Math.max(HUD_H, tap) };
+    return { x, y: this.midY, size, hitW: tap, hitH: Math.max(HUD_H, tap) };
+  }
+
+  /**
+   * The x the right-anchored heart row grows leftward from.
+   *
+   * Derived from `pauseSlot` rather than from a margin of its own, so the two
+   * right-hand regions of the bar cannot drift apart as the scale changes. On
+   * the old 640-wide bar the lives had the right edge to themselves and the
+   * pause toggle had its own lane at 450; on 480 they share the corner, and
+   * this is the line where one stops and the other starts.
+   */
+  get livesRight() {
+    const { x, size } = this.pauseSlot();
+    return x - size / 2 - M.pauseLivesGap * this.k;
   }
 
   layout() {
-    const k = HUD.scale;
+    const k = this.k;
     const top = this.top;
 
+    // The bar's own rect is the one thing here measured in HUD_H rather than in
+    // k: HUD_H is already the box's authored height, so multiplying it by
+    // HUD_UNIT a second time would draw it 39% too tall in portrait.
     this.bar
       .clear()
       .rect(0, top, DESIGN.width, HUD_H - top)
       .fill(0x07070f)
-      .rect(0, HUD_H - 2 * k, DESIGN.width, 2 * k)
+      .rect(0, HUD_H - 2 * HUD.scale, DESIGN.width, 2 * HUD.scale)
       .fill({ color: 0x35d0d8, alpha: 0.55 });
 
     this.scoreLabel.style.fontSize = M.scoreLabelSize * k;
@@ -178,16 +240,24 @@ export class Hud extends Container {
     const scoreH = this.scoreValue.height || M.scoreValueSize * k;
     const scoreW = this.scoreValue.width || M.scoreValueSize * k * 3.6;
 
-    this._powerRowX = Math.round(this.scoreValue.x + scoreW + M.powerRowGap * k);
-    // Clamped inside the bar so a tall glyph box cannot push a badge over the
-    // accent line along the bar's bottom edge.
-    this._powerRowY =
-      Math.round(
-        Math.min(
-          Math.max(this.scoreValue.y + scoreH / 2 - badge / 2, top + 2),
-          HUD_H - 2 * k - badge,
-        ),
-      ) + M.powerPad * k;
+    if (POWER_ROW_BELOW) {
+      // Its own line, hard against the bar's left margin and just under the
+      // accent stripe. Nothing else is down here, so there is no measuring to
+      // do and no neighbour to yield to.
+      this._powerRowX = Math.round(M.pad * k);
+      this._powerRowY = Math.round(HUD_H + M.powerRowDrop * k) + M.powerPad * k;
+    } else {
+      this._powerRowX = Math.round(this.scoreValue.x + scoreW + M.powerRowGap * k);
+      // Clamped inside the bar so a tall glyph box cannot push a badge over the
+      // accent line along the bar's bottom edge.
+      this._powerRowY =
+        Math.round(
+          Math.min(
+            Math.max(this.scoreValue.y + scoreH / 2 - badge / 2, top + 2),
+            HUD_H - 2 * k - badge,
+          ),
+        ) + M.powerPad * k;
+    }
 
     // Both rows are rebuilt rather than rescaled: they are pools of sprites
     // sized at construction, and the caches below are what stop that happening
@@ -234,14 +304,18 @@ export class Hud extends Container {
   _applyLevelText() {
     const { index, name } = this._level;
     const number = String(index + 1);
-    const k = HUD.scale;
+    const k = this.k;
     const gap = 8 * k;
 
-    // The lane is bounded on the right by the pause glyph and on the left by
-    // whichever of the badge row or the score digits reaches further.
-    const { x, size } = this.pauseSlot();
-    const right = x - size / 2 - gap;
-    const left = Math.max(this._powerRowRight, this.scoreValue.x + this.scoreValue.width) + gap;
+    // The lane is bounded on the right by the HEART ROW and on the left by
+    // whichever of the badge row or the score digits reaches further. It used
+    // to be the pause glyph on the right; on the narrow bar the hearts sit
+    // between the glyph and the middle, so they are the nearer neighbour.
+    const right = this.livesRight - this.livesIcons.width - gap;
+    // The badge row is only a neighbour while it shares this line; when it has
+    // its own it cannot crowd the level text however many power-ups are up.
+    const badgeRight = POWER_ROW_BELOW ? 0 : this._powerRowRight;
+    const left = Math.max(badgeRight, this.scoreValue.x + this.scoreValue.width) + gap;
 
     const centre = DESIGN.width / 2;
     const room = Math.min(centre - left, right - centre);
@@ -261,20 +335,21 @@ export class Hud extends Container {
     if (lives === this._lives) return;
     this._lives = lives;
 
-    const k = HUD.scale;
+    const k = this.k;
     const icon = M.lifeIcon * k;
     const gap = M.lifeGap * k;
-    const margin = M.lifeMargin * k;
+    const right = this.livesRight;
 
     for (const sprite of this.livesIcons.removeChildren()) sprite.destroy();
 
-    // One heart per spare life, right-aligned so the row grows leftward.
+    // One heart per spare life, right-aligned so the row grows leftward — from
+    // the pause toggle's left edge rather than the board's, see livesRight.
     for (let i = 0; i < Math.max(0, lives); i++) {
       const heart = new Sprite(TEX.heartIcon);
       heart.anchor.set(0.5);
       heart.width = icon;
       heart.height = icon;
-      heart.position.set(DESIGN.width - margin - icon / 2 - i * (icon + gap), this.midY);
+      heart.position.set(right - icon / 2 - i * (icon + gap), this.midY);
       this.livesIcons.addChild(heart);
     }
   }
@@ -301,7 +376,7 @@ export class Hud extends Container {
       return;
     }
 
-    const k = HUD.scale;
+    const k = this.k;
     const icon = M.powerIcon * k;
     const pad = M.powerPad * k;
     const size = icon + pad * 2;

@@ -6,35 +6,303 @@
  * that box to fit the window, so collision logic never has to know how big the
  * browser is.
  *
- * THE BOX IS 640 WIDE ALWAYS AND 480 TALL ONLY SOMETIMES. `DESIGN.height` is
- * the one number in this file that moves at runtime: on a screen taller than
- * 4:3 — which in practice means a phone held upright — the board's floor drops
- * to meet the screen instead of letterboxing into a strip a third of the
- * display tall. See the responsive-layout section at the bottom of this file.
- * Everything between here and there is measured from y 0 and is unaffected.
+ * THERE ARE TWO BOXES AND THE SCREEN PICKS ONE AT BOOT — 480x854 on a screen
+ * taller than it is wide, 640x480 on one wider than it is tall. See the
+ * device-shape section immediately below.
+ *
+ * ONE PIECE OF ART AND ONE SET OF GEOMETRY SERVE BOTH BOXES, which is the only
+ * reason two boxes are affordable. The painting and the traced sinus rings are
+ * authored in a 640x480 FRAME, and each box PLACES that frame with a single
+ * similarity transform — `frameX`/`frameY` below. The landscape box places it
+ * at 1:1 and is therefore the authored layout verbatim; the portrait box zooms
+ * it 1.15x and re-centres it. Everything that has to agree with the painting
+ * goes through those two functions and nothing else: the background sprite, the
+ * traced rings, the brick grid, the boss lane.
+ *
+ * WHY THE PORTRAIT BOX IS NARROWER THAN THE FRAME RATHER THAN A SCALED COPY OF
+ * IT. The board always fits to the screen's WIDTH, so the physical size of a
+ * brick is decided by one ratio and one ratio only: the brick's design width
+ * over the board's design width. A 48px cell in a 640px box is 7.5% of the
+ * screen; the same cell in a 480px box is 10%, and at FRAME_SCALE 1.15 it is
+ * 11.5%. Narrowing the box is the lever that makes the ball, the paddle and
+ * the bricks physically bigger on a phone; the frame zoom is a second, smaller
+ * one on top of it. Rescaling the frame to FIT the narrower box instead —
+ * cellW 48 -> 36, or the 34 an early pass reached for — cancels the first one
+ * exactly: 36/480 is 7.5% again, the same screen pixels, the same complaint.
  */
 
-export const DESIGN = { width: 640, height: 480 };
+/* ==================================================== device shape ====== */
 
-export const WALL = 8;          // thickness of the side/top walls
-export const HUD_H = 36;        // score bar above the playfield
+/**
+ * Which box this session is laid out in, decided ONCE at module load.
+ *
+ * IT IS THE SCREEN'S SHAPE, NOT ITS SIZE, and not a user-agent string. A
+ * desktop browser window dragged tall gets the portrait board and is right to;
+ * a tablet held sideways gets the landscape one. There is no device sniffing
+ * here and there should not be — the only thing the layout cares about is
+ * whether it has more width to spend or more height.
+ *
+ * DECIDED ONCE, AND THAT IS A REAL LIMITATION worth stating rather than
+ * hiding. Rotating a phone after boot does NOT re-shape the board: it stays
+ * the box it started in and Viewport pillarboxes or letterboxes it, which is
+ * playable but smaller than the other box would have been. Re-shaping live
+ * would mean re-deriving the placed rings in anatomy.js and everything
+ * cavity.js builds from them, all of which is computed at module load — a
+ * bigger change than a resize handler, and one the check:nose script would
+ * have to be taught to cover. A reload picks up the new shape.
+ */
+const SHAPE_OVERRIDE =
+  typeof process !== 'undefined' ? process.env?.NASODREN_SHAPE : undefined;
 
+function detectPortrait() {
+  // An explicit override wins, which is what lets check:nose validate both
+  // boxes from Node — see the check:nose script in package.json.
+  if (SHAPE_OVERRIDE === 'portrait') return true;
+  if (SHAPE_OVERRIDE === 'landscape') return false;
+
+  // No window means a build step or a validation script rather than a browser.
+  // Portrait is the default because it is the TIGHTER box: the painted section
+  // clears the side walls by 20px there against 128px in landscape, so a
+  // geometry check that passes portrait passes both.
+  if (typeof window === 'undefined') return true;
+
+  return window.innerWidth < window.innerHeight;
+}
+
+/** True on a screen taller than it is wide. Read by config, not by gameplay. */
+export const IS_PORTRAIT = detectPortrait();
+
+/**
+ * The design box.
+ *
+ * 640x480 is the authored frame verbatim — the board this game shipped with,
+ * and what a widescreen monitor gets back. 480x854 is 9:16, the shape a phone
+ * actually is.
+ *
+ * `height` moves after load in the LANDSCAPE box only; see
+ * `resolveDesignHeight` in the responsive-layout section for why the portrait
+ * one is pinned.
+ */
+export const DESIGN = IS_PORTRAIT ? { width: 480, height: 854 } : { width: 640, height: 480 };
+
+/**
+ * The frame the art and the geometry were authored in.
+ *
+ * background.png is cover-fitted into THIS box and the rings in anatomy.js are
+ * traced from the result, so the painted nose and the brick-containment
+ * geometry only agree with each other at 640x480. It is constant in the
+ * strongest sense in this file: the box is chosen, the frame is placed, this
+ * never moves, and anything that has to line up with the painting measures
+ * from here.
+ */
+export const DESIGN_FRAME = { width: 640, height: 480 };
+
+/**
+ * The painted section's vertical extent, in FRAME coordinates.
+ *
+ * The top of the frontal chambers and the floor of the maxillary wings — the
+ * first and last painted thing on the board. `npm run check:nose` prints both
+ * as "the section fits between the walls" and "the section clears the paddle
+ * band"; if the art is ever re-exported, take them from there.
+ *
+ * They are here rather than in anatomy.js because the vertical composition is
+ * built on them: FRAME_CY centres THIS span in the play area, not the frame's
+ * own box, and the difference is 35px of empty painting the frame carries
+ * above the brow.
+ */
+export const SECTION = { top: 30.2, bottom: 388 };
+
+export const WALL = 8;          // thickness of the side walls
+
+/**
+ * The TOP wall's thickness, which in portrait is also the power-up shelf.
+ *
+ * 8 IN LANDSCAPE, WHERE IT IS JUST A WALL. In portrait the badge row moved out
+ * of the bar and onto its own line (see POWER_ROW_BELOW in hud.js), and a row
+ * of chips floating on open board would be a row of chips the ball flies behind
+ * — the band under the bar is live playfield, and the ball is in it every time
+ * it turns around above the bricks.
+ *
+ * Thickening the top wall to hold the row solves both halves at once: the
+ * badges get a solid surface to sit on rather than hovering over the painting,
+ * and the ball bounces at FIELD.top BELOW them, so it can never be hidden. 58
+ * is the 50px bar's badge line (11..50 past the bar at the current scale) plus
+ * 8px of clearance under it.
+ */
+export const WALL_TOP = IS_PORTRAIT ? 58 : WALL;
+
+/**
+ * The HUD bar's height at scale 1, and the unit every metric in hud.js is a
+ * fraction of.
+ *
+ * BIGGER IN PORTRAIT, AND THIS IS WHERE THE "TOO SMALL TO READ" FIX LIVES.
+ * Every number in hud.js is multiplied by `HUD.scale * HUD_UNIT`, so raising
+ * the authored bar height raises the score digits, the level text and the
+ * hearts with it rather than just adding empty bar. 50/36 is 1.39x before the
+ * runtime scale, which lands the score value at 25.6 CSS pixels on a 390px
+ * phone against the 19 it was — the 35% the bar was asked to grow by.
+ *
+ * IT IS ONLY AFFORDABLE BECAUSE THE PAINTING MOVED DOWN. On the old layout the
+ * frame started at y 0 and the bar had to fit above the brow in 36 pixels; the
+ * portrait frame now starts at y 160, so the bar can take the room it needs
+ * out of the gap instead of out of the playfield.
+ */
+const HUD_BASE_H = 36;
+export const HUD_H = IS_PORTRAIT ? 50 : HUD_BASE_H;
+export const HUD_UNIT = HUD_H / HUD_BASE_H;
+
+/**
+ * The paddle's rest line.
+ *
+ * THE PORTRAIT VALUE IS A THUMB-ZONE DECISION, not a margin. 130 design pixels
+ * of board below the paddle is 106 CSS pixels on a 390px phone — about a
+ * thumb-width — and it is what stops the hand that is dragging the paddle from
+ * covering the paddle. Sitting it on the floor of the board the way the
+ * landscape layout does would put the contact point and the thing it controls
+ * in the same place.
+ *
+ * Declared before FIELD because the death line is measured from it, and before
+ * the frame placement because the play area it centres the painting in runs
+ * from the top wall down to here.
+ */
+const PADDLE_REST_Y = IS_PORTRAIT ? 724 : 442;
+
+/**
+ * How far below the paddle a ball is still in play.
+ *
+ * 38 is the landscape board's own paddle-to-floor gap, so `FIELD.bottom` comes
+ * out at exactly DESIGN.height there and that box is unchanged. In portrait it
+ * puts the death line at 762, which is the point: the 92 pixels below it are
+ * the thumb zone, and a ball that has passed the paddle should be gone before
+ * it reaches the hand rather than falling through it for another 130px.
+ */
+const BALL_FLOOR_GAP = 38;
+
+/**
+ * The playfield's bounds.
+ *
+ * `bottom` IS THE DEATH LINE AND IT IS READ, which it was not before this
+ * change: game-scene.js tested `ball.y > DESIGN.height + 8` and this field was
+ * written by `applyDesignHeight` and then used by nobody. On a board whose
+ * floor is also its paddle line those two agree; on one with a thumb zone
+ * under the paddle they do not.
+ */
 export const FIELD = {
   left: WALL,
   right: DESIGN.width - WALL,
-  top: HUD_H + WALL,
-  bottom: DESIGN.height,
+  top: HUD_H + WALL_TOP,
+  bottom: PADDLE_REST_Y + BALL_FLOOR_GAP,
 };
 
-/** Brick grid. 13 columns x 48px == the 624px of playable width exactly. */
+/* =================================================== frame placement ==== */
+
+/**
+ * How much bigger the painting is in this box than it was authored.
+ *
+ * 1 IN LANDSCAPE BY DEFINITION — that box IS the frame. 1.15 in portrait, and
+ * the ceiling is 1.17: the painted section reaches frame x 504, which is 184
+ * from the midline, and 184 * 1.17 + 8 (the wall) is 224 against the 240 the
+ * half-box has. At 1.15 the section lands at board x 28..452 and clears each
+ * wall by 20px, which is the margin this is trading against zoom. Push it past
+ * 1.17 and the cheekbone is drawn underneath the wall.
+ *
+ * THE GRID SCALES WITH IT AND HAS TO. The cells are laid out to land inside
+ * the painted cavities, so a zoom that moves the cavities and not the cells
+ * slides every cell off the chamber it belongs to. GRID.cellW below is the
+ * authored 48 through this same factor, which is why check:nose reports the
+ * same fourteen legal positions in both boxes.
+ */
+export const FRAME_SCALE = IS_PORTRAIT ? 1.15 : 1;
+
+/** The frame's centre, in board coordinates. Horizontally it is the box's. */
+export const FRAME_CX = DESIGN.width / 2;
+
+/**
+ * Vertically it is wherever it takes to CENTRE THE PAINTED SECTION IN THE PLAY
+ * AREA — the band from the top wall down to the paddle — rather than to centre
+ * the frame in the box.
+ *
+ * THIS IS THE ANSWER TO "HOW DO I KEEP THE GRID ALIGNED WHEN THE BACKGROUND
+ * MOVES": you do not move them separately. The background sprite, the traced
+ * rings and the brick grid are all placed by `frameX`/`frameY` from this one
+ * pair of numbers, so there is no second offset to keep in sync and no way for
+ * them to disagree. Change FRAME_SCALE or FRAME_CY and all three move together
+ * by construction.
+ *
+ * CENTRING THE SECTION, NOT THE FRAME, is worth the extra term. The frame
+ * carries 30px of empty painting above the brow and 92px below the maxillary
+ * floor, so centring the frame itself would hang the nose 35px high and leave
+ * the dead space this change exists to remove.
+ *
+ * THE SPLIT IS BIASED TOWARD THE LANE, 65/35. The slack is 205px and an even
+ * split would give a hundred pixels above the brow and a hundred below the
+ * maxillary floor; the band below is reaction time and the band above is only
+ * room for the ball to turn around in, so it gets the larger share. At 0.65 the
+ * lane is 133 design pixels — 0.50s of fall at BALL.baseSpeed, against 0.2s on
+ * the landscape board and the 1.54s this layout replaced — and the band above
+ * the brow is still 72px, several ball diameters. LANE_BIAS is the knob if that
+ * reads as too tight or too generous; nothing else has to move with it.
+ *
+ * In landscape all of this collapses: FRAME_SCALE is 1 and the value is pinned
+ * to the frame's own centre, so the placement is the identity.
+ */
+const LANE_BIAS = 0.65;
+
+function resolvePortraitFrameCy() {
+  const sectionH = (SECTION.bottom - SECTION.top) * FRAME_SCALE;
+  const slack = PADDLE_REST_Y - FIELD.top - sectionH;
+
+  // Where the top of the painted brow lands, then back out the frame centre it
+  // implies. Two steps rather than one because the first is the number anyone
+  // eyeballing the layout actually cares about.
+  const sectionTop = FIELD.top + slack * (1 - LANE_BIAS);
+  return sectionTop - (SECTION.top - DESIGN_FRAME.height / 2) * FRAME_SCALE;
+}
+
+export const FRAME_CY = IS_PORTRAIT ? resolvePortraitFrameCy() : DESIGN_FRAME.height / 2;
+
+/**
+ * Frame space -> board space. The only conversion there is.
+ *
+ * `frameLen` is for lengths rather than positions — a cell width, a stroke —
+ * which take the scale but not the translation.
+ */
+export const frameX = (x) => (x - DESIGN_FRAME.width / 2) * FRAME_SCALE + FRAME_CX;
+export const frameY = (y) => (y - DESIGN_FRAME.height / 2) * FRAME_SCALE + FRAME_CY;
+export const frameLen = (n) => n * FRAME_SCALE;
+
+/**
+ * Brick grid. 13 columns x 48px, authored against the 640-wide frame and
+ * carried into whichever box is active by the frame placement above.
+ *
+ * EVERY FIELD HERE GOES THROUGH THAT PLACEMENT, including the cell size. These
+ * cells are not laid out to fill the board — they are laid out to land inside
+ * the painted sinus cavities, so they scale and translate with the painting or
+ * they stop lining up with it. Deriving cellW from DESIGN.width instead, so
+ * that thirteen columns centre in 480, would slide every cell off its chamber:
+ * check:nose counts 14 legal positions and would find rather fewer, and the two
+ * bone cells per level that have to SIT ON a chamber wall would be sitting on
+ * paint. The grid centres on the PAINTING, not on the box.
+ */
 export const GRID = {
   cols: 13,
   rows: 14,
-  cellW: 48,
-  cellH: 20,
-  gap: 2,
-  x: FIELD.left,
-  y: FIELD.top + 16,
+  cellW: frameLen(48),
+  cellH: frameLen(20),
+  gap: frameLen(2),
+  /**
+   * The frame's own left wall and first grid row, placed.
+   *
+   * NEGATIVE IN PORTRAIT — around -119 — and that is correct. Column i spans
+   * `GRID.x + i * cellW`, so anchoring at the frame's wall keeps every column
+   * index pointing at exactly the painted cavity it points at in the other box,
+   * and the seven congestion positions per side are the same seven cells in
+   * levels.js for both. Columns 0 and 1 hang off the left edge of the board and
+   * 11 and 12 off the right; no level has ever placed a cell there, and
+   * check:nose now fails any that tries.
+   */
+  x: frameX(WALL),
+  y: frameY(HUD_BASE_H + WALL + 16),
 };
 
 /**
@@ -119,8 +387,12 @@ export const BRICK = {
    * at 640x480. It costs six of the 38 legal cells; see the note in levels.js.
    */
   clearance: 3,
-  /** Corner radius. Just under half the cell height, so it reads as a capsule. */
-  radius: 7,
+  /**
+   * Corner radius. Just under half the cell height, so it reads as a capsule —
+   * placed through the frame scale like the cell it is rounding, or a zoomed
+   * board would draw the same 7px corner on a 15% larger brick.
+   */
+  radius: frameLen(7),
 };
 
 export const BRICK_W = GRID.cellW - GRID.gap;
@@ -226,12 +498,19 @@ export function difficultyControlScale(levelIndex) {
 }
 
 export const PADDLE = {
-  y: 442,
+  /** The paddle's rest line. See PADDLE_REST_Y, where it and FIELD are set. */
+  y: PADDLE_REST_Y,
   height: 14,
   /**
    * `tiny` exists only for the Rebound Effect. It is deliberately narrower than
    * anything the original power-down table could reach: the crash has to read as
    * a different category of punishment from an ordinary Narrow Paddle.
+   *
+   * UNCHANGED BY THE PIVOT, which makes the normal paddle 18% of the board's
+   * width instead of 14%. That is a deliberate easing: the complaint the pivot
+   * answers was that the paddle is too small to hit anything with on a phone,
+   * and rescaling these to hold the old fraction would have handed back exactly
+   * the pixels the narrower board just won.
    */
   widths: { tiny: 34, small: 54, normal: 88, big: 132 },
   keySpeed: 560,
@@ -239,10 +518,28 @@ export const PADDLE = {
   pointerLerp: 1,
 };
 
+/**
+ * How long a capsule takes to fall from the top of the grid to the paddle.
+ *
+ * THE DURATION IS THE AUTHORED VALUE, NOT THE SPEED, which is what lets one
+ * number serve both boxes and survive every change to the vertical layout. The
+ * original 118 px/s crossed the landscape board's 382px grid-to-paddle gap in
+ * 3.24 seconds; the portrait gap is 505px, and 118 there would have turned
+ * every capsule into a four-and-a-half-second wait. Holding the 3.24 seconds
+ * and solving for the speed gives 118 in landscape and 156 in portrait — the
+ * same drop, felt the same way, in two boxes.
+ */
+const CAPSULE_FALL_SECONDS = 3.24;
+
 export const CAPSULE = {
   w: 34,
   h: 16,
-  fallSpeed: 118,
+  /**
+   * Design pixels per second, derived from the lane this box actually has.
+   * `applyDesignHeight` scales it again from here for screens taller than the
+   * base box, by the same reasoning.
+   */
+  fallSpeed: Math.round((PADDLE.y - GRID.y) / CAPSULE_FALL_SECONDS),
   /** Probability that a destroyed brick releases a capsule. */
   dropChance: 0.27,
 };
@@ -362,13 +659,29 @@ export const DEFAULT_MODE = 'classic';
  *   the top of the boss clears the corruption meter at y 46..70.
  */
 export const BOSS = {
-  /** Vertical centre of the patrol band. */
-  y: 180,
+  /**
+   * Vertical centre of the patrol band, PLACED WITH THE PAINTING.
+   *
+   * The construct patrols the nasal cavity between the frontal chambers and
+   * the ethmoid, so its lane is a fact about the painting rather than about
+   * the board: left at a bare 180 it would sit above the brow on the portrait
+   * board, where the frame now starts at y 160. frameY is the identity in
+   * landscape, so the authored 180 is unchanged there.
+   */
+  y: frameY(180),
   patrol: {
     /** Seconds for one full left-right-left sweep. */
     period: 9.5,
-    /** Horizontal clearance kept from each wall. */
-    margin: 92,
+    /**
+     * Horizontal clearance kept from each wall.
+     *
+     * 92 IS THE AUTHORED LANDSCAPE VALUE and 40 is what the narrower board
+     * needs. The construct reaches 90.5px from its centre, so it has 283px of
+     * inner width to move in on the portrait board against 443 in landscape;
+     * keeping 92 there would have left it a 99px sweep, pacing on the spot. 40
+     * gives it 203, close to the 259 it sweeps in landscape.
+     */
+    margin: IS_PORTRAIT ? 40 : 92,
   },
 
   core: {
@@ -962,73 +1275,100 @@ export const MUSIC = {
 /* ==================================================== responsive layout == */
 
 /**
- * The frame the art and the geometry were authored in.
- *
- * background.png is cover-fitted into THIS box and anatomy.js's rings are
- * traced from the result, so the painted nose and the brick-containment
- * geometry only agree with each other at 640x480. It is constant in the
- * strongest sense in this file: `DESIGN.height` moves, this never does, and
- * anything that has to line up with the painting measures from here.
+ * See the device-shape and frame-placement sections at the top of this file
+ * for the two boxes and the transform that places the authored frame inside
+ * whichever one is active. They live up there because `FIELD` and `GRID` are
+ * defined from them.
  */
-export const DESIGN_FRAME = { width: 640, height: 480 };
 
 /**
- * How tall the design box may grow on a screen taller than the frame.
+ * The board's base height, and the shape the whole game is laid out for.
+ *
+ * 480x854 is 9:16 — the shape a phone actually is, near enough that a modern
+ * 19.5:9 handset letterboxes by about a tenth of its height rather than the
+ * two thirds the old 4:3 board lost. 480 is the authored frame height, which a
+ * landscape screen fills exactly. Every card scene composes against the
+ * authored 640x480 frame and is centred into whichever box this is by
+ * `frameDrop()`, which is therefore 187 in portrait and 0 in landscape.
+ *
+ * IT IS A FLOOR, NOT A FIXED SIZE. `resolveDesignHeight` never returns less
+ * than this, and grows it on a screen taller than the box.
+ */
+export const BASE_HEIGHT = DESIGN.height;
+
+/**
+ * How tall the design box may grow on a screen taller than 9:16.
  *
  * THE ONLY THING THIS BUYS IS LANE LENGTH, which is worth stating plainly
  * because it is not obvious and it was got wrong once. The board always fits
  * to width, so the scale is fixed by the screen's width alone: the painted
- * nose is 224px across on a 390px-wide phone at EVERY value of this constant.
+ * nose is 276px across on a 390px-wide phone at EVERY value of this constant.
  * Raising it does not make the nose, the bricks or the ball one pixel bigger.
- * All it does is stretch the empty lane between the maxillary floor at y 388
- * and the paddle, and turn black margin below the board into board.
+ * All it does is stretch the empty lane between the maxillary floor and the
+ * paddle, and turn black margin below the board into board.
  *
- * SO THE QUESTION IS ONLY HOW MUCH REACTION ROOM A PHONE WANTS. The authored
- * lane at 640x480 is 54px. 560 makes it 134px, about two and a half times,
- * which is a real cushion on a small screen without the board reading as a
- * corridor. An earlier pass set this to 860 — an eight-times lane, 434px —
- * chasing "fill the screen"; on a phone that is a different game, and it was
- * reported as the board being far too stretched.
+ * SO THE QUESTION IS ONLY HOW MUCH REACTION ROOM THE BOX WANTS. In portrait,
+ * the lane below the painting's lowest point is already 412px at the base
+ * height — about 1.5s of fall at BALL.baseSpeed — and 940 takes it to 498 and
+ * covers a 19.5:9 handset nearly edge to edge. An earlier pass on the
+ * landscape board tried to fill the screen this way without narrowing it and
+ * was reported as far too stretched; the difference in portrait is that the
+ * board got BIGGER as well as taller, so the extra height is lane the player
+ * can see the ball falling through rather than a corridor watched from far
+ * away.
  *
- * The ceiling still matters for the uncapped case: a 19.5:9 screen asks for
- * 640x1385, where a ball leaving the maxillary falls for three seconds at
- * BALL.baseSpeed. Retune this one number to trade lane against black margin;
- * nothing else has to move, and CAPSULE.fallSpeed follows it automatically.
+ * IN LANDSCAPE THIS IS THE AUTHORED 560, which is the value that shipped: a
+ * 134px lane, two and a half times the frame's own 54, for the narrow-window
+ * case. A landscape SCREEN is wider than 4:3 and never reaches it.
+ *
+ * IN PORTRAIT IT IS NOW THE BASE HEIGHT, WHICH PINS THE BOX. That is a change
+ * from when it was 940, and the reason is that the portrait box's vertical
+ * composition is now tuned as a whole: FRAME_CY centres the painted section
+ * between the top wall and the paddle, so growing the board only stretches the
+ * thumb zone and the lane below a nose that stays where it is. A taller phone
+ * letterboxes instead, and Viewport puts three quarters of that slack BELOW the
+ * board — which is thumb zone under another name, and costs the player nothing.
+ *
+ * Retune whichever number matters to trade lane against black margin; nothing
+ * else has to move, and CAPSULE.fallSpeed follows it automatically.
  */
-const MAX_DESIGN_HEIGHT = 560;
+const MAX_DESIGN_HEIGHT = IS_PORTRAIT ? BASE_HEIGHT : 560;
 
 /**
  * Distances measured from the board's FLOOR rather than its ceiling, captured
- * at the authored frame height before anything can move them.
+ * at the base height before anything can move them.
  *
  * This is the complete list, which is the point of writing it down. Everything
  * else in the game measures down from y 0 — the HUD, the walls' top edge, the
  * brick grid, the painted section, the corruption meter — and a taller board is
  * invisible to all of it.
  */
-const PADDLE_BOTTOM_INSET = DESIGN_FRAME.height - PADDLE.y;
+const PADDLE_BOTTOM_INSET = BASE_HEIGHT - PADDLE.y;
 const CAPSULE_BASE_FALL = CAPSULE.fallSpeed;
 const CAPSULE_BASE_LANE = PADDLE.y - GRID.y;
+const FLOOR_TO_DEATH_LINE = BASE_HEIGHT - FIELD.bottom;
 
 /**
  * How tall the design box should be for a screen of this size.
  *
  * WIDTH IS THE ANCHOR AND HEIGHT IS THE FREE AXIS. The board's width is what
- * the whole layout is built around — thirteen 48px grid columns, the painted
- * section between the two side walls, the HUD's three regions — so it stays at
- * 640 and the box grows downward instead. `fitted` is the height at which the
- * box would exactly fill the screen once its width does.
+ * the whole layout is built around — the placed art frame, the thirteen grid
+ * columns carried in with it, the HUD's regions — so it stays at whatever the
+ * chosen box set it to and the box grows downward instead. `fitted` is the
+ * height at which the box would exactly fill the screen once its width does.
  *
- * ON ANY SCREEN 4:3 OR WIDER THIS RETURNS THE FRAME HEIGHT, so every desktop
- * window and every phone held in landscape is laid out exactly as it was before
- * this function existed. It has anything to say only about a screen taller than
- * the frame.
+ * ON ANY SCREEN AT LEAST AS WIDE AS THE BOX THIS RETURNS THE BASE HEIGHT, and
+ * since the box was chosen from the screen's own shape at boot that is the
+ * overwhelmingly common case in both: a landscape screen gets 640x480, a phone
+ * gets 480x854. It has anything to say only about a screen TALLER than the box
+ * it picked — a 19.5:9 handset against the 9:16 portrait box, or a narrow
+ * window against the 4:3 landscape one.
  */
 export function resolveDesignHeight(screenW, screenH) {
-  if (!screenW || !screenH) return DESIGN_FRAME.height;
+  if (!screenW || !screenH) return BASE_HEIGHT;
 
   const fitted = (DESIGN.width * screenH) / screenW;
-  return Math.round(Math.max(DESIGN_FRAME.height, Math.min(MAX_DESIGN_HEIGHT, fitted)));
+  return Math.round(Math.max(BASE_HEIGHT, Math.min(MAX_DESIGN_HEIGHT, fitted)));
 }
 
 /**
@@ -1043,13 +1383,14 @@ export function applyDesignHeight(height) {
   if (height === DESIGN.height) return false;
 
   DESIGN.height = height;
-  FIELD.bottom = height;
   PADDLE.y = height - PADDLE_BOTTOM_INSET;
+  // The death line rides with the paddle, not with the board: see FIELD.bottom.
+  FIELD.bottom = height - FLOOR_TO_DEATH_LINE;
 
   // Capsules scale with the lane they fall down, so a power-up released at the
   // top of the grid takes the same time to reach the paddle as it does at the
-  // frame height. Left unscaled, a 640x860 board turns collecting one into a
-  // four-second wait — a drop is a reward, not a mechanic.
+  // base height. See CAPSULE.fallSpeed for why that duration is the thing
+  // being held constant rather than the speed.
   //
   // THE BALL IS DELIBERATELY NOT SCALED HERE. Scaling it too would make a tall
   // board play identically to a short one, only zoomed, and the extra reaction
@@ -1063,16 +1404,19 @@ export function applyDesignHeight(height) {
  * How far to drop a group that was composed against the authored frame so that
  * it stays centred on the board.
  *
- * ZERO AT THE FRAME HEIGHT, which is what makes it safe to use freely: every
- * landscape and desktop layout is unchanged by definition, and only a portrait
- * board sees any offset at all.
+ * It is for the menu, picker, revive and result CARDS, which are composed
+ * top-down against the frame's 480 and would otherwise huddle in the top half
+ * of a 854-tall board with the rest of it empty. GameScene deliberately does
+ * NOT use it for the playfield: that layout is anchored to the ceiling (the
+ * HUD, the brick grid, the painting) and to the floor (the paddle) rather than
+ * centred, which is the whole reason the box grows downward. Its pause card
+ * does use it.
  *
- * It is for the menu and result CARDS, which are composed top-down against 480
- * and would otherwise sit in the top third of a portrait board with the rest
- * of it empty. GameScene deliberately does NOT use it for the playfield: that
- * layout is anchored to the ceiling (the HUD, the brick grid, the painting)
- * and to the floor (the paddle) rather than centred, which is the whole reason
- * the box grows downward. Its pause card does use it.
+ * IT IS ZERO IN THE LANDSCAPE BOX BY CONSTRUCTION, since that box IS the
+ * authored frame, and 187 in the portrait one at the base height. So every
+ * card screen is laid out exactly as authored on a desktop and shares the
+ * portrait board's extra height out evenly on a phone, from one set of
+ * coordinates.
  */
 export function frameDrop() {
   return (DESIGN.height - DESIGN_FRAME.height) / 2;
@@ -1095,21 +1439,32 @@ export const HUD = { scale: 1 };
  *
  * 36 design pixels of bar comes out at 68 CSS pixels on a 1440px desktop and
  * 22 on a 390px phone, where the 22px pause glyph inside it lands at 13 — too
- * small to read and well under any reasonable tap target. 40 is the floor at
- * which the bar's text is legible on a phone held at arm's length; the scale
- * needed to reach it is derived rather than tabulated.
+ * small to read and well under any reasonable tap target.
+ *
+ * RAISED FROM 40 TO 54, which is the other half of the readability fix (see
+ * HUD_H for the first). 40 was a floor for legibility at arm's length and read
+ * as exactly that — legible, not comfortable. 54 puts the score value at 25.6
+ * CSS pixels and a heart at 24 on a 390px phone, both about a third up. The
+ * scale needed to reach it is derived rather than tabulated, and on the
+ * landscape board the bar is already past it, so nothing changes there.
  */
-const HUD_TARGET_CSS = 40;
+const HUD_TARGET_CSS = 54;
 
 /**
  * Ceiling on the scale, because the bar competes for width as it grows.
  *
- * At 1.8 the level text is 27px and the lives are 29px hearts, which still
- * leaves the pause toggle its lane at x 450 — Hud._applyLevelText drops the
- * level NAME when it would not. Much past that and the three regions of the
- * bar start fighting over the same 640 pixels.
+ * WIDTH IS WHAT SETS IT, so it differs by box, and it is multiplied by
+ * HUD_UNIT before it reaches any metric — so the portrait ceiling of 1.4 is
+ * really 1.94 worth of authored size. The bar has to hold a six-digit score,
+ * the level text, three hearts and the pause toggle across 480 design pixels,
+ * and past 1.94 the hearts reach far enough in that `Hud._applyLevelText`
+ * cannot fit even a bare level number between them and the score.
+ *
+ * THE BADGE ROW IS NO LONGER IN THAT COMPETITION IN PORTRAIT — it moved to its
+ * own line under the bar, which is what bought the level indicator the room to
+ * stay visible at this size. See M.powerRowBelow in hud.js.
  */
-const HUD_MAX_SCALE = 1.8;
+const HUD_MAX_SCALE = IS_PORTRAIT ? 1.4 : 1.8;
 
 /**
  * How big the HUD should be for this board scale and this much headroom.
@@ -1120,11 +1475,13 @@ const HUD_MAX_SCALE = 1.8;
  * So the scale can only rise as far as there is empty screen above the board
  * to rise into, which is what `headroom` measures.
  *
- * A phone in PORTRAIT has plenty — 206 design pixels on a 390x844 screen — and
- * gets the full 1.8. A phone in LANDSCAPE has none at all: a 4:3 board fills
- * the height exactly, so this returns 1 and the glyphs stay their authored
- * size there. The pause button's tap target does not depend on this (see
- * TAP_CSS in hud.js), so it stays reachable either way.
+ * A phone in PORTRAIT normally clears both limits comfortably: a 390x844
+ * screen leaves 46 design pixels of headroom above a 480x854 board, which
+ * affords 2.28, and HUD_TARGET_CSS asks for only 1.37. A phone held LANDSCAPE
+ * is now pillarboxed rather than letterboxed — it is wider than the board, not
+ * taller — so it has no headroom at all, this returns 1, and the glyphs stay
+ * their authored size. The pause button's tap target does not depend on this
+ * (see TAP_CSS in hud.js), so it stays reachable either way.
  *
  * @param {number} viewportScale design pixels -> CSS pixels
  * @param {number} headroom design pixels of empty screen above the board
