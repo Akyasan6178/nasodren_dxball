@@ -19,19 +19,27 @@ const PREVIEW_CELL_W = PREVIEW_W / GRID.cols;
 const PREVIEW_CELL_H = PREVIEW_CELL_W * (GRID.cellH / GRID.cellW);
 const PREVIEW_H = PREVIEW_CELL_H * GRID.rows;
 
-const CELL_W = 132;
-const CELL_H = 74;
+/**
+ * Tile size, shrunk from the 132x74 this shipped with once the landscape box
+ * was cropped down to the face (see LANDSCAPE_WIDTH in config.js — 545 wide,
+ * not the 640+ every earlier box was). At 132 wide, 545 only holds 3 columns
+ * — the same count the far-narrower 480 portrait box gets — which forces 5
+ * rows for 13 levels and runs the last row's tiles straight into the back
+ * button below, with no margin between them at all. 112 (74 scaled by the
+ * same ratio, to keep the tile's proportions) holds 4 columns at 545 and
+ * still 3 at 480, so both boxes keep a row to spare under 13 levels.
+ */
+const CELL_W = 112;
+const CELL_H = 63;
 const GAP = 12;
 /** Clear space wanted between the outermost tiles and the board's walls. */
 const SIDE_MARGIN = 30;
 
 /**
  * AS MANY COLUMNS AS THE BOX HAS ROOM FOR, WHICH IS THE ARITHMETIC AND NOT A
- * TASTE CALL. Four 132px tiles plus three 12px gaps is 564: it fits the
- * 640-wide landscape board with 38px to spare either side and overflows the
- * 480-wide portrait one by 84px, which would run the picker under both walls.
- * So this resolves to 4 in landscape — the authored layout — and 3 in
- * portrait, where 420 leaves the 30px margin asked for above.
+ * TASTE CALL. This resolves to 4 in landscape (545 wide) and 3 in portrait
+ * (480 wide) — see CELL_W above for why both need to clear 13 levels without
+ * crowding the back button.
  *
  * Derived rather than branched on IS_PORTRAIT because it is a fact about the
  * width: change CELL_W or the box and the count follows without being told.

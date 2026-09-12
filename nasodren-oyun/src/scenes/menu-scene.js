@@ -216,8 +216,16 @@ export class MenuScene extends Scene {
     this._swapPanel(() => {
       const { audio, save } = this.ctx;
 
-      const box = panel(380, 250);
-      box.position.set((DESIGN.width - 380) / 2, 152);
+      // Every column below is an offset from the box's own x, not an
+      // absolute board coordinate — the board is not always 640 wide (see
+      // DESIGN.width, which varies by device shape and by the 16:9
+      // landscape box), so a hardcoded x is only ever correct for the one
+      // width it was tuned against and spills the whole list out from
+      // under the panel on any other.
+      const boxW = 380;
+      const boxX = (DESIGN.width - boxW) / 2;
+      const box = panel(boxW, 250);
+      box.position.set(boxX, 152);
       this.panelLayer.addChild(box);
 
       const heading = makeText('YÜKSEK SKORLAR', { size: 18, anchor: 0.5 });
@@ -235,23 +243,42 @@ export class MenuScene extends Scene {
         empty.position.set(DESIGN.width / 2, 270);
         this.panelLayer.addChild(empty);
       } else {
+        // Column x's, each an offset from boxX so the whole row tracks the
+        // panel wherever it lands. `nameW` is a hard ceiling on the one
+        // variable-length, player-entered field in this row — the name is
+        // already capped at NAME_MAX (8) characters at entry (see
+        // results-scene.js), but wrapping it here as well means a widened
+        // column, a longer cap, or an unusually wide glyph can never push
+        // the name into the score/level columns instead of just failing
+        // quietly against a number that no longer applies.
+        const rankX = 20;
+        const nameX = 54;
+        const scoreX = 322;
+        const lvlX = 362;
+        const nameW = scoreX - nameX - 8;
+
         scores.slice(0, 8).forEach((entry, i) => {
           const y = 200 + i * 22;
           const rank = makeText(`${i + 1}.`, { size: 13, color: 0x6a7bb5 });
-          rank.position.set(150, y);
+          rank.position.set(boxX + rankX, y);
 
-          const name = makeText(entry.name, { size: 13, color: 0xffffff });
-          name.position.set(184, y);
+          const name = makeText(entry.name, {
+            size: 13,
+            color: 0xffffff,
+            wordWrap: true,
+            wordWrapWidth: nameW,
+          });
+          name.position.set(boxX + nameX, y);
 
           const score = makeText(String(entry.score).padStart(6, '0'), {
             size: 13,
             color: 0xffd23f,
             anchor: [1, 0],
           });
-          score.position.set(452, y);
+          score.position.set(boxX + scoreX, y);
 
           const lvl = makeText(`B${entry.level}`, { size: 11, color: 0x4a5580, anchor: [1, 0] });
-          lvl.position.set(492, y + 1);
+          lvl.position.set(boxX + lvlX, y + 1);
 
           this.panelLayer.addChild(rank, name, score, lvl);
         });

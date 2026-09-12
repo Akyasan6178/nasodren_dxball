@@ -87,7 +87,7 @@ import { Assets } from 'pixi.js';
  *                      minification — well past where one bilinear tap has
  *                      anything useful to say.
  *
- * ASSET.png and siklement.png are the same shape of problem but are left alone:
+ * loading1.png and siklement.png are the same shape of problem but are left alone:
  * each mip chain costs about a third again in texture memory, and those two are
  * full-screen stills on scenes with nothing else on them, where a soft edge
  * costs nothing and never moves.
@@ -106,22 +106,19 @@ export const manifest = {
       name: 'preload',
       assets: [
         { alias: 'background', src: 'background.png', data: SMOOTH_DOWNSCALE },
+        { alias: 'bgRed', src: 'bg-red.png', data: SMOOTH_DOWNSCALE },
         { alias: 'cyclamenBall', src: 'cyclamen-ball.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'transitionAsset', src: 'ASSET.png' },
+        { alias: 'loading1', src: 'loading1.png' },
         { alias: 'brickTier1', src: 'brick1.png', data: SMOOTH_DOWNSCALE },
         { alias: 'brickTier2', src: 'brick2.png', data: SMOOTH_DOWNSCALE },
         { alias: 'brickTier3', src: 'brick3.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'loadingHeart', src: 'loading2.png' },
-        { alias: 'loadingFlame', src: 'loading3.png' },
+        { alias: 'loading2', src: 'loading2.png' },
+        { alias: 'loading3', src: 'loading3.png' },
         { alias: 'siklement', src: 'siklement.png' },
         { alias: 'heartIcon', src: 'heart.png', data: SMOOTH_DOWNSCALE },
         { alias: 'paddleSkin', src: 'platform.png', data: SMOOTH_DOWNSCALE },
         { alias: 'pauseIcon', src: 'pause.png', data: SMOOTH_DOWNSCALE },
         { alias: 'continueIcon', src: 'continue.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'sinus1', src: 'sinus1.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'sinus2', src: 'sinus2.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'sinus3', src: 'sinus3.png', data: SMOOTH_DOWNSCALE },
-        { alias: 'sinus4', src: 'sinus4.png', data: SMOOTH_DOWNSCALE },
       ],
     },
     {

@@ -367,8 +367,8 @@ export function buildTextures(renderer) {
   // TransitionScene's two flanking loading icons. Same fallback contract as
   // everything else in this file: a plain baked placeholder until
   // `applyImageAssets()` swaps in loading2.png/loading3.png.
-  TEX.loadingHeart = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xff4d5a));
-  TEX.loadingFlame = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xffd23f));
+  TEX.loading2 = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xff4d5a));
+  TEX.loading3 = bake(renderer, new Graphics().roundRect(0, 0, 40, 40, 10).fill(0xffd23f));
 
   // HUD life icon and the paddle skin. Same fallback contract as everything
   // else — a plain baked placeholder until heart.png/platform.png land.
@@ -379,14 +379,6 @@ export function buildTextures(renderer) {
   // placeholder until pause.png/continue.png land.
   TEX.pauseIcon = bake(renderer, new Graphics().roundRect(0, 0, 20, 20, 5).fill(0x35d0d8));
   TEX.continueIcon = bake(renderer, new Graphics().roundRect(0, 0, 20, 20, 5).fill(0x86e05a));
-
-  // GameScene's congestion meter, four stages most-to-least inflamed. Same
-  // fallback contract — plain baked placeholders, one shade each, until
-  // sinus1..4.png land.
-  TEX.sinus1 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xd6202f));
-  TEX.sinus2 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xff9130));
-  TEX.sinus3 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0xffd23f));
-  TEX.sinus4 = bake(renderer, new Graphics().roundRect(0, 0, 70, 53, 8).fill(0x86e05a));
 
   TEX.ball = bake(renderer, ballFace());
   TEX.glow = bake(renderer, radialGlow(28, 0xffffff));
@@ -442,9 +434,9 @@ export function buildTextures(renderer) {
  * Phase 1 of the visual reskin: swap the procedural bakes for real artwork.
  *
  * Called from boot-scene.js once the `preload` bundle (see core/assets.js)
- * has resolved, so `background.png`, `cyclamen-ball.png` and `ASSET.png`
- * (the transition-scene centrepiece) are all already in the Assets cache
- * before any scene constructs a Sprite from these keys.
+ * has resolved, so `background.png`, `cyclamen-ball.png` and `loading1.png`
+ * (one of the transition-scene centrepieces) are all already in the Assets
+ * cache before any scene constructs a Sprite from these keys.
  *
  * `TEX.cyclamenBall` and `TEX.cyclamenBallPale` both point at the same
  * texture — there is only one piece of ball artwork, not a separate
@@ -454,13 +446,19 @@ export function buildTextures(renderer) {
  *
  * Guarded so a failed or still-pending load falls back to the baked
  * placeholder from `buildTextures()` instead of handing a scene an
- * undefined texture. `TEX.transitionAsset` has no baked fallback — it is
- * new artwork with nothing to fall back to — so TransitionScene must only
- * ever run after this has had a chance to set it.
+ * undefined texture. `TEX.loading1` has no baked fallback — it is new
+ * artwork with nothing to fall back to — so TransitionScene must only ever
+ * run after this has had a chance to set it.
  */
 export function applyImageAssets() {
   const background = Assets.get('background');
   if (background) TEX.background = background;
+
+  // The red congestion overlay — see GameScene._buildField/_updateBgCrossfade.
+  // No baked fallback, same as `background` above: it is a full-screen
+  // photograph with nothing procedural to stand in for it.
+  const bgRed = Assets.get('bgRed');
+  if (bgRed) TEX.bgRed = bgRed;
 
   const cyclamenBall = Assets.get('cyclamenBall');
   if (cyclamenBall) {
@@ -468,8 +466,8 @@ export function applyImageAssets() {
     TEX.cyclamenBallPale = cyclamenBall;
   }
 
-  const transitionAsset = Assets.get('transitionAsset');
-  if (transitionAsset) TEX.transitionAsset = transitionAsset;
+  const loading1 = Assets.get('loading1');
+  if (loading1) TEX.loading1 = loading1;
 
   // The HP-tier art. Same fallback contract as the two above: each key keeps
   // its baked placeholder colour until its real PNG lands.
@@ -480,10 +478,10 @@ export function applyImageAssets() {
   const brickTier3 = Assets.get('brickTier3');
   if (brickTier3) TEX.brickTier3 = brickTier3;
 
-  const loadingHeart = Assets.get('loadingHeart');
-  if (loadingHeart) TEX.loadingHeart = loadingHeart;
-  const loadingFlame = Assets.get('loadingFlame');
-  if (loadingFlame) TEX.loadingFlame = loadingFlame;
+  const loading2 = Assets.get('loading2');
+  if (loading2) TEX.loading2 = loading2;
+  const loading3 = Assets.get('loading3');
+  if (loading3) TEX.loading3 = loading3;
 
   const siklement = Assets.get('siklement');
   if (siklement) TEX.siklement = siklement;
@@ -497,11 +495,6 @@ export function applyImageAssets() {
   if (pauseIcon) TEX.pauseIcon = pauseIcon;
   const continueIcon = Assets.get('continueIcon');
   if (continueIcon) TEX.continueIcon = continueIcon;
-
-  for (const key of ['sinus1', 'sinus2', 'sinus3', 'sinus4']) {
-    const tex = Assets.get(key);
-    if (tex) TEX[key] = tex;
-  }
 }
 
 

@@ -25,7 +25,6 @@ import {
   PADDLE,
   PLASMA,
   PURGE,
-  REBOUND,
   SHAKE,
   SNEEZE,
   TRIAL,
@@ -46,7 +45,6 @@ import {
   Capsule,
   POWERUP_BY_ID,
   PURGE_PROTOCOL,
-  REBOUND_CAPSULE,
   applyPowerUp,
   rollPowerUp,
 } from '../game/powerups.js';
@@ -174,17 +172,6 @@ export class GameScene extends Scene {
     this._controlScale = difficultyControlScale(this.levelIndex);
 
     /**
-     * Capsules folded into this level's drop roll on top of the global table.
-     *
-     * Built once and reused for every roll, so spawning a capsule allocates
-     * nothing extra. Empty on a non-trial level, which makes `rollPowerUp`
-     * behave exactly as it did before the Rebound existed.
-     */
-    this._dropExtras = this.trialMechanics
-      ? [{ def: REBOUND_CAPSULE, weight: TRIAL.reboundWeight }]
-      : [];
-
-    /**
      * Does this level stage its congestion inside the sinus?
      *
      * A pure presentation flag, and it is worth being explicit that it is no
@@ -292,7 +279,7 @@ export class GameScene extends Scene {
     this.remainingBricks = { ...this.initialBrickCount };
     this._lastRemaining = this.brickField.remaining;
 
-    this._buildSinusMeter();
+    this._initBgCrossfade();
 
     this.capsuleLayer = new Container();
     this.laserLayer = new Container();
@@ -358,86 +345,111 @@ export class GameScene extends Scene {
     // ratio. `this.backdrop` stays null; `_updateBackdrop` no-ops on that.
     this.backdrop = null;
 
-    const background = new Sprite(TEX.background);
+    // The base layer: the "healthy" blue backdrop, always present underneath.
+    this._placeBackgroundLayer(TEX.background);
 
-    // The mip chain and the anisotropic sampler are declared at load time on
-    // the manifest entry in core/assets.js — that is the authoritative place,
-    // because `mipLevelCount` is frozen when the GPU texture is created, and a
-    // flag set after that is a flag set too late.
-    //
-    // This is the belt to that pair of braces, and it is not superfluous: a Vite
-    // hot reload can hand this scene a source that was created before the
-    // manifest entry above existed, and it would still be doing the same brutal
-    // minification. Cheap and idempotent — the setters only write fields, and
-    // the single `update()` is what publishes the change: without it the style
-    // keeps its cached resource id and the renderer never rebuilds the sampler.
-    //
-    // GUARDED ON TEX.background, and that guard is the whole reason this is four
-    // lines instead of three. `background` is the ONE image key in textures.js
-    // with no procedural fallback bake, so a failed load leaves it undefined and
-    // `new Sprite(undefined)` quietly resolves to the shared Texture.EMPTY. Force
-    // a mip chain onto that and every white 1x1 in the game inherits it.
-    if (TEX.background) {
-      const source = background.texture.source;
+    // The fullness readout moved off a corner gauge and onto the backdrop
+    // itself. bg-red.png is the same painting, inflamed, cover-fitted and
+    // placed exactly like the layer below it, so the two sit pixel-for-pixel
+    // on top of one another. `_updateBgCrossfade` drives this layer's alpha
+    // from 1 (fully congested, level start) down to 0 (fully cleared) every
+    // frame — see that method. `this.bgRed` stays null if the asset failed to
+    // load, which `_updateBgCrossfade` guards on.
+    this.bgRed = TEX.bgRed ? this._placeBackgroundLayer(TEX.bgRed) : null;
+
+    this.fieldChrome = new Graphics();
+    this.gameContainer.addChild(this.fieldChrome);
+    this._drawFieldChrome();
+  }
+
+  /**
+   * Cover-fit one full-canvas backdrop texture into the frame and place it —
+   * shared by the blue base layer and the red congestion overlay, which must
+   * land on exactly the same pixels for the crossfade between them to read as
+   * one painting changing colour rather than two images sliding past each
+   * other.
+   *
+   * The mip chain and the anisotropic sampler are declared at load time on
+   * the manifest entry in core/assets.js — that is the authoritative place,
+   * because `mipLevelCount` is frozen when the GPU texture is created, and a
+   * flag set after that is a flag set too late.
+   *
+   * This is the belt to that pair of braces, and it is not superfluous: a Vite
+   * hot reload can hand this scene a source that was created before the
+   * manifest entry above existed, and it would still be doing the same brutal
+   * minification. Cheap and idempotent — the setters only write fields, and
+   * the single `update()` is what publishes the change: without it the style
+   * keeps its cached resource id and the renderer never rebuilds the sampler.
+   *
+   * GUARDED ON `texture` BEING TRUTHY, because `background` and `bgRed` are the
+   * two image keys in textures.js with no procedural fallback bake: a failed
+   * load leaves the key undefined and `new Sprite(undefined)` quietly resolves
+   * to the shared Texture.EMPTY. Force a mip chain onto that and every white
+   * 1x1 in the game inherits it. Callers that pass `TEX.bgRed` already guard
+   * the call itself (see `_buildField`); this guard is what makes the method
+   * safe to call with `TEX.background` too, which nothing else here checks.
+   *
+   * COVER-FIT, NOT STRETCH — and this, not the sampler above, is the bigger
+   * half of the quality problem. background.png is 1920x1080 (aspect 1.778)
+   * and the authored frame is 640x480 (aspect 1.333). Assigning `width` and
+   * `height` scales the two axes INDEPENDENTLY: 0.333x across against 0.444x
+   * down, so the artwork would be squeezed 25% horizontally. Every curve in it
+   * was drawn as an ellipse, and — worse for sharpness — each axis would be
+   * resampled at a different rate, which no amount of filtering can undo
+   * because the distortion is in the geometry, not the sampling.
+   *
+   * Scale uniformly by whichever axis needs more coverage and let the surplus
+   * hang off the sides. It is free to let it overflow: Viewport installs a
+   * mask the size of the design box on its root (see core/viewport.js), so
+   * the crop is already being done by the same mask that draws the letterbox
+   * bars — and on the portrait board that mask is doing most of the work,
+   * since the box is narrower than the frame the painting is fitted to. On
+   * the 16:9 landscape board the box is exactly as wide as this cover-fit
+   * renders the painting, so nothing is left to crop at all.
+   *
+   * FITTED TO DESIGN_FRAME, NOT TO DESIGN, AND THIS IS THE ONE LINE MOST
+   * WORTH READING TWICE. The obvious move on a board that is not the authored
+   * frame's own shape is to cover it outright —
+   *
+   *     Math.max(DESIGN.width / tex.width, DESIGN.height / tex.height)
+   *
+   * — which for a 1920x1080 source on the 480x854 portrait box is 0.79
+   * against the frame's 0.44: the painted nose comes up 1.78x and fills the
+   * screen beautifully, and every single piece of geometry that has to agree
+   * with it breaks. anatomy.js's rings are traced from this image cover-fitted
+   * into 640x480; scale the image and not the rings and the maxillary
+   * chambers end up sitting under a wall that is no longer under them. The
+   * check:nose script is the thing that would tell you.
+   *
+   * So the painting is cover-fitted to the FRAME, at the frame's own scale,
+   * and the frame is then PLACED in the board by frameX/frameY — one scale
+   * about one centre, applied to the painting, the traced rings and the brick
+   * grid alike. THIS IS ALSO WHY ONE METHOD SERVES EVERY BOX: in landscape the
+   * placement only re-centres a wider board, so a widescreen monitor gets the
+   * painting exactly as authored, uncropped; in portrait it zooms 1.15x about
+   * a centre chosen to sit the nose in the middle of the play area, and the
+   * board CROPS the sides rather than squeezing them.
+   *
+   * The extra height below the frame is open board — see FRAME_BOTTOM and
+   * _drawFieldChrome, which give it a floor to read as.
+   *
+   * @param {import('pixi.js').Texture} texture
+   * @returns {Sprite}
+   */
+  _placeBackgroundLayer(texture) {
+    const sprite = new Sprite(texture);
+
+    if (texture) {
+      const source = sprite.texture.source;
       source.autoGenerateMipmaps = true;
       source.style.scaleMode = 'linear'; // magFilter + minFilter + mipmapFilter
       source.style.maxAnisotropy = 16;
       source.style.update();
     }
 
-    // COVER-FIT, NOT STRETCH — and this, not the sampler above, is the bigger
-    // half of the quality problem. background.png is 1920x1080 (aspect 1.778)
-    // and the design box is 640x480 (aspect 1.333). Assigning `width` and
-    // `height` scales the two axes INDEPENDENTLY: 0.333x across against 0.444x
-    // down, so the artwork was squeezed 25% horizontally. Every curve in it was
-    // drawn as an ellipse, and — worse for sharpness — each axis was resampled
-    // at a different rate, which no amount of filtering can undo because the
-    // distortion is in the geometry, not the sampling.
-    //
-    // Scale uniformly by whichever axis needs more coverage and let the surplus
-    // hang off the sides. It is free to let it overflow: Viewport installs a
-    // mask the size of the design box on its root (see core/viewport.js), so
-    // the crop is already being done by the same mask that draws the letterbox
-    // bars — and on the portrait board that mask is doing most of the work,
-    // since the box is narrower than the frame the painting is fitted to.
-    //
-    // WHAT THIS COSTS: 16:9 into 4:3 crops 240px from each end of the source,
-    // leaving a 1440x1080 window onto the art. Anything composed hard against
-    // the left or right edge of the PNG is now off-screen. If that matters more
-    // than the distortion did, `Math.min` here letterboxes instead — but the
-    // real answer is a 4:3 re-export, which also fixes the resolution ceiling
-    // noted below.
-    // FITTED TO DESIGN_FRAME, NOT TO DESIGN, AND THIS IS THE ONE LINE MOST
-    // WORTH READING TWICE. The obvious move on a 480x854 board is to cover it
-    // outright —
-    //
-    //     Math.max(DESIGN.width / tex.width, DESIGN.height / tex.height)
-    //
-    // — which for a 1920x1080 source is 0.79 against the frame's 0.44: the
-    // painted nose comes up 1.78x and fills the screen beautifully, and every
-    // single piece of geometry that has to agree with it breaks. anatomy.js's
-    // rings are traced from this image cover-fitted into 640x480; scale the
-    // image and not the rings and the maxillary chambers end up at board x 567
-    // on a board 480 wide, with every bone cell sitting on a wall that is no
-    // longer under it. The check:nose script is the thing that would tell you.
-    //
-    // So the painting is cover-fitted to the FRAME, at the frame's own scale,
-    // and the frame is then PLACED in the board by frameX/frameY — one scale
-    // about one centre, applied to the painting, the traced rings and the brick
-    // grid alike. THIS IS ALSO WHY ONE LINE SERVES BOTH BOXES: in landscape the
-    // placement is the identity, so a widescreen monitor gets the painting
-    // exactly as authored; in portrait it zooms 1.15x about a centre chosen to
-    // sit the nose in the middle of the play area, and the board CROPS the
-    // sides rather than squeezing them. Since the section only spans frame
-    // x 136..504 what is lost is cheek. The nose ends up 317px across on a
-    // 390px phone against the 207px it was before any of this, and it got there
-    // without moving a traced coordinate.
-    //
-    // The extra height below the frame is open board — see FRAME_BOTTOM and
-    // _drawFieldChrome, which give it a floor to read as.
     const cover = Math.max(
-      DESIGN_FRAME.width / background.texture.width,
-      DESIGN_FRAME.height / background.texture.height,
+      DESIGN_FRAME.width / sprite.texture.width,
+      DESIGN_FRAME.height / sprite.texture.height,
     );
     // ANCHOR 0.5 AND THE FRAME'S CENTRE, not the box's. `FRAME_CX` is the box
     // centre horizontally, so that part is the same thing; `FRAME_CY` is not,
@@ -451,35 +463,18 @@ export class GameScene extends Scene {
     // and this is what makes the frame fill more of the board. Every traced
     // ring and every brick cell is multiplied by the same factor about the same
     // centre by frameX/frameY, so nothing needs realigning afterwards.
-    background.anchor.set(0.5);
-    background.scale.set(cover * FRAME_SCALE);
-    background.position.set(FRAME_CX, FRAME_CY);
+    sprite.anchor.set(0.5);
+    sprite.scale.set(cover * FRAME_SCALE);
+    sprite.position.set(FRAME_CX, FRAME_CY);
 
-    // THE REMAINING CEILING IS THE ASSET, NOT THE CODE, and it is worth writing
-    // down so the next person does not go looking for another filter flag. With
-    // cover-fit the visible 1440x1080 of source has to cover a board that is
-    // 640*s by 480*s device pixels, where s = min(screenW/640, screenH/480) and
-    // the screen is already multiplied by a device pixel ratio capped at 2:
-    //
-    //   1366x768  DPR 1   board 1024x768    0.71x  minified, mipmaps handle it
-    //   1920x1080 DPR 1   board 1440x1080   1.00x  exactly native, ideal
-    //   2560x1440 DPR 1   board 1920x1440   1.33x  MAGNIFIED, soft
-    //   1440x900  DPR 2   board 2400x1800   1.67x  MAGNIFIED, visibly soft
-    //
-    // Past 1080p the texture is being enlarged, and mipmaps do nothing for
-    // magnification — they only ever supply SMALLER levels. A 2560x1920 export
-    // (4:3, so nothing is cropped either) stays native up to a 4.0x viewport,
-    // which covers every case in that table.
     // The source art reads far brighter than the play layer sitting on top
     // of it — bricks and the ball were getting lost against it. A flat
     // multiply tint is the cheapest fix: darkens the whole image with zero
     // extra draw call, no separate overlay Sprite to keep in sync.
-    background.tint = 0x666666;
-    this.gameContainer.addChild(background);
+    sprite.tint = 0x666666;
+    this.gameContainer.addChild(sprite);
 
-    this.fieldChrome = new Graphics();
-    this.gameContainer.addChild(this.fieldChrome);
-    this._drawFieldChrome();
+    return sprite;
   }
 
   /**
@@ -850,72 +845,6 @@ export class GameScene extends Scene {
     this.hud.setPowers(actives);
   }
 
-  setPaddleWidth(state, duration) {
-    // Wide and Narrow share one slot: the newest pickup replaces the old.
-    this._endTimer('width', false);
-    this.paddle.setWidthState(state);
-    this._setTimer('width', duration, () => this.paddle.setWidthState('normal'), state === 'big' ? 'big' : 'small');
-  }
-
-  /**
-   * The Rebound Effect — the chemical decongestant trap capsule.
-   *
-   * Two stages sharing the single 'width' slot, which is what makes it behave
-   * correctly against the rest of the table: a Wide or Narrow capsule caught
-   * mid-rebound goes through `setPaddleWidth`, which cancels this slot without
-   * invoking its onEnd, so the collapse is called off and the player is never
-   * left with two owners fighting over the bat width. That is also the intended
-   * escape hatch — the natural extract can rescue you from the rebound.
-   *
-   * Stage two is installed from stage one's onEnd. That is safe with the
-   * existing wheel: `_updateTimers` walks a snapshot of the map and `_endTimer`
-   * deletes the entry before calling onEnd, so the replacement lands in the map
-   * without being decremented a second time in the same frame.
-   */
-  reboundEffect() {
-    this._endTimer('width', false);
-
-    // Instant relief: the widest the bat ever gets. Eased, like every other
-    // width change, because this stage is supposed to feel earned.
-    this.paddle.setWidthState(REBOUND.surgeWidth);
-
-    this._setTimer('width', REBOUND.surge, () => this._reboundCrash(), 'rebound');
-  }
-
-  /** Rhinitis medicamentosa: the relief expires narrower than it began. */
-  _reboundCrash() {
-    // Reachable from _clearAllTimers during a death or a level change. Restore
-    // the neutral width and install nothing — punishing a paddle that is about
-    // to be reset just leaks a timer into the next life.
-    if (this.state !== 'play' && this.state !== 'serve') {
-      this.paddle.setWidthState('normal');
-      return;
-    }
-
-    // Snapped, not eased. See Paddle.setWidthState.
-    this.paddle.setWidthState(REBOUND.crashWidth, true);
-
-    this.ctx.audio.powerUp(false);
-    this.triggerShake(SHAKE.packetHit.duration, SHAKE.packetHit.intensity);
-
-    this.particles.burst(this.paddle.x, this.paddle.y, {
-      count: 16,
-      color: 0xd6202f,
-      speed: 150,
-      life: 0.5,
-      size: 1,
-      soft: true,
-    });
-
-    this._floatText('REBOUND!', this.paddle.x, this.paddle.top - 34, 0xd6202f, { size: 18 });
-
-    // Same slot again, so the recovery stays cancellable by any width capsule
-    // the player can still reach with a 34px bat. Reported to the HUD as
-    // 'small': that icon already means "your paddle is narrow", and the player
-    // does not need a third piece of iconography to be told so.
-    this._setTimer('width', REBOUND.crash, () => this.paddle.setWidthState('normal'), 'small');
-  }
-
   setPaddleMode(mode, duration) {
     this._endTimer('mode', false);
     this.paddle.setMode(mode);
@@ -962,10 +891,6 @@ export class GameScene extends Scene {
 
   killPaddle() {
     this._loseLife();
-  }
-
-  warpLevel() {
-    this._completeLevel(true);
   }
 
   splitBalls(extra) {
@@ -1083,12 +1008,12 @@ export class GameScene extends Scene {
     this.particles.update(dt);
     this._updateFloaters(dt);
     this._updateBackdrop(dt);
-    this._updateSinusMeter(dt);
+    this._updateBgCrossfade(dt);
 
     if (this.paddle.corrupted) this.paddle.updateGlitch(dt);
     this._updateShake(dt);
 
-    if (this.state === 'play' && this._levelBeaten()) this._completeLevel(false);
+    if (this.state === 'play' && this._levelBeaten()) this._completeLevel();
   }
 
   /**
@@ -1180,84 +1105,45 @@ export class GameScene extends Scene {
   }
 
   /**
-   * Dynamic sinus-fullness meter: a small four-stage image in the corner of
-   * the field — sinus1 (most inflamed/congested) down to sinus4 (cleanest) —
-   * that tracks the level's own breakable-brick count. Scenery only: nothing
-   * here is solid, and nothing here feeds back into `remaining` or the
-   * level-clear check, which read the brick field directly regardless of
-   * what this is currently showing.
+   * Denominator for the backdrop crossfade: the level's breakable-brick count
+   * at the moment it opened. Scenery only — nothing here feeds back into
+   * `remaining` or the level-clear check, which read the brick field directly
+   * regardless of what the backdrop is currently showing.
    *
-   * Positioned in the one corner of the field no layout ever authors a cell
-   * into — columns 0-2 are outside the range `validateLevels` allows any
-   * shape to occupy, see the note at the top of levels.js — so the meter
-   * never has a brick drawn over it on any level, boss included.
-   *
-   * Skipped entirely on a level with nothing breakable to begin with (a
-   * boss encounter): a meter with `_sinusTotal <= 0` would only ever divide
-   * by zero.
+   * A level with nothing breakable to begin with (a boss encounter) has no
+   * fullness to speak of; `_updateBgCrossfade` guards on `_bgTotal <= 0` and
+   * simply leaves the red layer at its built alpha of 1 forever, same as a
+   * level nobody has started clearing yet.
    */
-  _buildSinusMeter() {
-    this._sinusTotal = this.brickField.remaining;
-    if (this._sinusTotal <= 0) {
-      this.sinusSprites = null;
-      return;
-    }
-
-    // sinus1..4.png are all the same 134x102 source, so one aspect serves
-    // every stage; `applyImageAssets()` may not have landed the real art yet
-    // when this runs, so this is worked out from the ratio rather than read
-    // off whichever texture (baked placeholder or real PNG) happens to be
-    // in TEX.sinus1 at this exact moment.
-    const w = 70;
-    const h = w * (102 / 134);
-    const x = FIELD.left + 14;
-    const y = FIELD.top + 14;
-
-    this.sinusSprites = ['sinus1', 'sinus2', 'sinus3', 'sinus4'].map((key, i) => {
-      const sprite = new Sprite(TEX[key]);
-      sprite.position.set(x, y);
-      sprite.width = w;
-      sprite.height = h;
-      // Only the first stage starts visible — the level opens at 100%
-      // remaining, which is stage 1 by definition.
-      sprite.alpha = i === 0 ? 1 : 0;
-      this.gameContainer.addChild(sprite);
-      return sprite;
-    });
+  _initBgCrossfade() {
+    this._bgTotal = this.brickField.remaining;
   }
 
   /**
-   * Eases every stage's alpha toward 1 (its own tier is current) or 0
-   * (it isn't), every frame — a plain per-frame lerp is what turns "the tier
-   * changed" into a crossfade with no extra timer or tween state to manage.
-   *
-   * Tier bounds match the brief exactly: 100-75% remaining is stage 1 (most
-   * inflamed), stepping down to under 25% for stage 4 (cleanest).
+   * Eases the red congestion layer's alpha toward `remaining / total` every
+   * frame — a plain per-frame lerp is what turns "the ratio changed" into a
+   * soft crossfade with no extra timer or tween state to manage. 1.0 at level
+   * start (fully congested, fully red), falling toward 0.0 as bricks clear
+   * (fully healed, fully blue), exactly tracking the brief.
    */
-  _updateSinusMeter(dt) {
-    if (!this.sinusSprites) return;
+  _updateBgCrossfade(dt) {
+    if (!this.bgRed || this._bgTotal <= 0) return;
 
     // The 30s respawn mechanic (`spawnBricks`, see bricks.js) can push
-    // `remaining` back above the count `_sinusTotal` was captured at when the
+    // `remaining` back above the count `_bgTotal` was captured at when the
     // level opened. Left alone, that produces a ratio over 1.0 forever after
-    // — the meter reads the level as permanently at its most-congested stage
+    // — the backdrop reads the level as permanently at its most-congested,
     // no matter how much the player actually clears, since `remaining` can
     // never again reach the old (now too-small) denominator. Raising the
     // denominator to match keeps "remaining / total" meaning what it always
     // meant — the fraction of currently-possible bricks still standing — so a
     // respawn wave correctly reads as renewed congestion rather than breaking
     // the percentage math.
-    if (this.brickField.remaining > this._sinusTotal) this._sinusTotal = this.brickField.remaining;
+    if (this.brickField.remaining > this._bgTotal) this._bgTotal = this.brickField.remaining;
 
-    const ratio = this.brickField.remaining / this._sinusTotal;
-    const tier = ratio >= 0.75 ? 0 : ratio >= 0.5 ? 1 : ratio >= 0.25 ? 2 : 3;
-
+    const target = this.brickField.remaining / this._bgTotal;
     const FADE_RATE = 2.5; // higher = snappier crossfade, in units of 1/second
-    for (let i = 0; i < this.sinusSprites.length; i++) {
-      const target = i === tier ? 1 : 0;
-      const sprite = this.sinusSprites[i];
-      sprite.alpha += (target - sprite.alpha) * Math.min(1, dt * FADE_RATE);
-    }
+    this.bgRed.alpha += (target - this.bgRed.alpha) * Math.min(1, dt * FADE_RATE);
   }
 
   /**
@@ -1668,7 +1554,7 @@ export class GameScene extends Scene {
   // --- capsules ------------------------------------------------------------
 
   _spawnCapsule(x, y) {
-    const capsule = new Capsule(rollPowerUp(this._dropExtras), x, y);
+    const capsule = new Capsule(rollPowerUp(), x, y);
     this.capsuleLayer.addChild(capsule);
     this.capsules.push(capsule);
   }
@@ -1794,7 +1680,7 @@ export class GameScene extends Scene {
       }
     }
 
-    if (this.state === 'play' && this._levelBeaten()) this._completeLevel(false);
+    if (this.state === 'play' && this._levelBeaten()) this._completeLevel();
   }
 
   _clearLasers() {
@@ -1859,7 +1745,7 @@ export class GameScene extends Scene {
     }
   }
 
-  _completeLevel(warped) {
+  _completeLevel() {
     if (this.state === 'clear') return;
 
     this.state = 'clear';
@@ -1873,7 +1759,7 @@ export class GameScene extends Scene {
     for (const ball of this.balls) ball.destroy({ children: true });
     this.balls.length = 0;
 
-    this._showMessage(warped ? 'BÖLÜM ATLANDI' : 'BÖLÜM TAMAMLANDI', 0);
+    this._showMessage('BÖLÜM TAMAMLANDI', 0);
 
     for (let i = 0; i < 6; i++) {
       this._wait(i * 0.12, () =>

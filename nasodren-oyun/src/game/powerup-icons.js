@@ -28,11 +28,6 @@ export const ICONS = {};
 
 /* --------------------------------------------------------------- helpers -- */
 
-/** Outward/inward arrowhead used by the paddle-width icons. */
-function arrow(g, x, y, dir, size = 7) {
-  g.poly([x, y - size, x + dir * size, y, x, y + size]).fill(0xffffff);
-}
-
 function chevron(g, y, dir, w = 11, h = 6, thickness = 3.4) {
   g.moveTo(C - w, y)
     .lineTo(C, y + dir * h)
@@ -43,20 +38,6 @@ function chevron(g, y, dir, w = 11, h = 6, thickness = 3.4) {
 /* ---------------------------------------------------------------- icons --- */
 
 const DRAWINGS = {
-  /** Wide paddle: a bar pushed apart. */
-  big(g) {
-    g.roundRect(C - 6, C - 3, 12, 6, 3).fill(0xffffff);
-    arrow(g, C - 10, C, -1);
-    arrow(g, C + 10, C, 1);
-  },
-
-  /** Narrow paddle: the same bar squeezed inward. */
-  small(g) {
-    g.roundRect(C - 4, C - 3, 8, 6, 3).fill(0xffffff);
-    arrow(g, C - 16, C, 1);
-    arrow(g, C + 16, C, -1);
-  },
-
   /** Grab: a ball held on the bat. */
   catch(g) {
     g.roundRect(C - 13, C + 7, 26, 6, 3).fill(0xffffff);
@@ -135,13 +116,6 @@ const DRAWINGS = {
       .fill(0xffffff);
   },
 
-  /** Level warp: skip ahead. */
-  warp(g) {
-    g.poly([C - 15, C - 11, C - 2, C, C - 15, C + 11]).fill(0xffffff);
-    g.poly([C - 2, C - 11, C + 11, C, C - 2, C + 11]).fill(0xffffff);
-    g.roundRect(C + 12, C - 11, 4.5, 22, 2).fill(0xffffff);
-  },
-
   /** Zap: controls inverted. */
   zap(g) {
     g.poly([C + 5, C - 15, C - 10, C + 2, C - 1, C + 2, C - 5, C + 15, C + 10, C - 3, C + 1, C - 3])
@@ -164,25 +138,6 @@ const DRAWINGS = {
       .lineTo(C - 1.5, C + 4)
       .lineTo(C + 6, C - 6)
       .stroke({ width: 3.2, color: 0xffffff, cap: 'round', join: 'round' });
-  },
-
-  /**
-   * Rebound: a relief spike that overshoots downward.
-   *
-   * Drawn as a trace rather than a paddle so it does not read as a sibling of
-   * the `big`/`small` icons — it is not a width power-up, it is a curve with a
-   * cliff in it. The dot pins the peak, which is the first thing to vanish when
-   * a thin stroke is scaled to twelve pixels.
-   */
-  rebound(g) {
-    g.moveTo(C - 15, C + 5)
-      .lineTo(C - 7, C + 5)
-      .lineTo(C - 2, C - 12)
-      .lineTo(C + 4, C + 13)
-      .lineTo(C + 15, C + 13)
-      .stroke({ width: 3.4, color: 0xffffff, cap: 'round', join: 'round' });
-
-    g.circle(C - 2, C - 12, 3.4).fill(0xffffff);
   },
 
   /** Kill paddle. Built from solid shapes so it survives tinting at 12px. */

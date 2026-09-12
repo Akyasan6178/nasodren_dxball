@@ -23,8 +23,13 @@ const CENTER_SIZE = 160;
  * different transition-screen "photos" rather than three icons crowded onto
  * one screen. `applyImageAssets()` in textures.js has already pointed every
  * one of these keys at its real PNG by the time this runs.
+ *
+ * `loading1` is the virus, `loading2` the heart, `loading3` the cyclamen
+ * flower — the same order `TIPS_BY_KEY` below keys its tip pools by, so
+ * whichever centrepiece a visit lands on, the tip shown under it is always
+ * about that same thing rather than any of the other two.
  */
-const CENTER_KEYS = ['transitionAsset', 'loadingHeart', 'loadingFlame'];
+const CENTER_KEYS = ['loading1', 'loading2', 'loading3'];
 
 /**
  * The tip block, measured DOWN FROM THE BOTTOM OF THE CENTREPIECE rather than
@@ -53,7 +58,14 @@ const tipTitleY = () => DESIGN.height / 2 + ART_CLEARANCE;
 /** Same heavy stroke/shadow treatment on every label here — see heavyText(). */
 const FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
-/** Shared with revive-scene.js, which tracks its own history against the same list. */
+/**
+ * Cyclamen tips — shown under `loading3` (the cyclamen flower).
+ *
+ * Shared with revive-scene.js, which tracks its own history against this
+ * same list: ReviveScene's centrepiece is always the cyclamen (siklement.png),
+ * so it never needed a per-image pool of its own the way TransitionScene now
+ * does — see `TIPS_BY_KEY` below.
+ */
 export const TIPS = [
   'Siklamen çiçeği özütü (saponin), burun mukozasında refleks bir etki yaratarak sinüslerde biriken mukusun doğal yollarla atılmasını sağlar.',
   'Siklamen bitkisinin yumrularından elde edilen bu özüt, kana karışmadan sadece lokal olarak burun boşluğunda etki gösterir.',
@@ -61,6 +73,27 @@ export const TIPS = [
   'Siklamen özütü uygulandığında, burun içindeki silyaların hareketliliğini artırarak sinüslerin temizlenme sürecini hızlandırır.',
   "Doğada genellikle gölgelik orman altlarında yetişen siklamen, halk arasında 'tavşankulağı' olarak da bilinir.",
 ];
+
+/** Sinüzit, iltihap ve virüsler — shown under `loading1` (the virus). */
+const TIPS_VIRUS = [
+  'Sinüzit, burun ve sinüs boşluklarını kaplayan mukozanın iltihaplanmasıdır; vakaların büyük bölümü bir üst solunum yolu virüsüyle başlar.',
+  'Virüsler sinüs kanallarının iç yüzeyindeki mukozayı şişirerek doğal drenaj açıklıklarını daraltır ve mukusun içeride birikmesine yol açar.',
+  'Akut viral sinüzit genellikle 7-10 gün içinde kendiliğinden geriler; belirtilerin bu sürenin ötesinde şiddetlenmesi bakteriyel bir sürece işaret edebilir.',
+];
+
+/** Genel vücut sağlığı, yorgunluk ve bağışıklık — shown under `loading2` (the heart). */
+const TIPS_HEART = [
+  'Kronikleşen sinüzit, bağışıklık sisteminin sürekli düşük düzeyde iltihapla uğraşmasına yol açarak günlük enerji seviyesini düşürebilir.',
+  'Sinüs tıkanıklığı gece boyunca rahat nefes almayı zorlaştırır; bozulan uyku kalitesi ertesi gün hissedilen yorgunluğun başlıca sebeplerindendir.',
+  'Güçlü ve dengeli bir bağışıklık sistemi, sinüslerdeki mukus birikimini daha hızlı temizleyerek iltihabın kronikleşmesini önlemede kilit rol oynar.',
+];
+
+/** Which tip pool belongs under which centrepiece — see CENTER_KEYS above. */
+const TIPS_BY_KEY = {
+  loading1: TIPS_VIRUS,
+  loading2: TIPS_HEART,
+  loading3: TIPS,
+};
 
 /**
  * A bold, stroked, drop-shadowed label — plain `Text`, not the shared
@@ -95,8 +128,8 @@ export function heavyText(text, { size = 20, color = 0xffffff, align = 'left', w
  * Between-scenes hold: shown while starting a run and between levels, so the
  * player always gets a beat to read a tip even though every asset here is
  * already in the Assets cache by the time this runs (see textures.js —
- * `applyImageAssets()` populates `TEX.transitionAsset` during the boot
- * preload) and would otherwise flash past in a single frame.
+ * `applyImageAssets()` populates `TEX.loading1` during the boot preload) and
+ * would otherwise flash past in a single frame.
  *
  * Usage: `sm.change(TransitionScene, { next: SomeScene, params: {...} })`.
  * `next`/`params` describe the scene to hand off to once `HOLD_SECONDS` has
@@ -111,15 +144,18 @@ export class TransitionScene extends Scene {
     this._dotTimer = 0;
     this._dotCount = 0;
 
+    // Picked once, here, rather than separately in `_buildAsset` and
+    // `_buildTip` — the tip has to match whichever centrepiece this visit
+    // actually shows, not an independent roll of its own. See TIPS_BY_KEY.
+    this._centerKey = CENTER_KEYS[Math.floor(cosmeticRandom() * CENTER_KEYS.length)];
+
     this._buildAsset();
     this._buildLoadingText();
     this._buildTip();
   }
 
   _buildAsset() {
-    const key = CENTER_KEYS[Math.floor(cosmeticRandom() * CENTER_KEYS.length)];
-
-    const sprite = new Sprite(TEX[key]);
+    const sprite = new Sprite(TEX[this._centerKey]);
     sprite.anchor.set(0.5);
     sprite.scale.set(CENTER_SIZE / sprite.texture.width);
     sprite.position.set(DESIGN.width / 2, DESIGN.height / 2);
@@ -140,7 +176,8 @@ export class TransitionScene extends Scene {
   }
 
   _buildTip() {
-    const tip = TIPS[Math.floor(cosmeticRandom() * TIPS.length)];
+    const pool = TIPS_BY_KEY[this._centerKey];
+    const tip = pool[Math.floor(cosmeticRandom() * pool.length)];
 
     const title = heavyText('İPUCU:', { size: 14, color: 0x35d0d8, align: 'center' });
     title.anchor.set(0.5, 0);

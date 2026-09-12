@@ -13,11 +13,12 @@ const MODE_COLORS = {
 };
 
 /**
- * The paddle owns its own width/mode state machine.
+ * The paddle owns its own mode state machine.
  *
- * Width changes are eased rather than snapped, matching the way the original
- * grew and shrank the bat over a few frames — it reads as a physical object
- * instead of a teleporting rectangle.
+ * Width is NOT part of it. The paddle is always PADDLE.width wide — no
+ * power-up or mechanic may resize it, by design — so there is nothing here to
+ * ease or snap; only `mode` (normal/sticky/laser) and the corruption glitch
+ * ever change how the paddle looks or behaves.
  */
 export class Paddle extends Container {
   constructor() {
@@ -38,12 +39,10 @@ export class Paddle extends Container {
     this.gfx = new Graphics();
     this.addChild(this.gfx);
 
-    this.widthState = 'normal';
     /** 'normal' | 'sticky' | 'laser' */
     this.mode = 'normal';
 
-    this.w = PADDLE.widths.normal;
-    this.targetW = this.w;
+    this.w = PADDLE.width;
     this.h = PADDLE.height;
 
     /**
@@ -64,7 +63,6 @@ export class Paddle extends Container {
 
     this.vx = 0;
     this._lastX = DESIGN.width / 2;
-    this._drawnW = -1;
     this._drawnMode = null;
     this._drawnCorrupt = false;
 
@@ -92,25 +90,6 @@ export class Paddle extends Container {
 
   get bottom() {
     return this.y + this.h / 2;
-  }
-
-  /**
-   * @param {'tiny'|'small'|'normal'|'big'} state
-   * @param {boolean} [snap] Skip the width ease and resize on this frame.
-   *
-   * The ease is what makes the bat feel physical, so it stays the default. The
-   * Rebound crash is the one caller that wants it gone: a collapse that takes a
-   * third of a second to arrive reads as the paddle deflating, and the player
-   * adapts to it. Snapped, it reads as the relief being withdrawn.
-   */
-  setWidthState(state, snap = false) {
-    this.widthState = state;
-    this.targetW = PADDLE.widths[state];
-
-    if (snap) {
-      this.w = this.targetW;
-      this.redraw();
-    }
   }
 
   setMode(mode) {
@@ -191,11 +170,9 @@ export class Paddle extends Container {
 
   /** Full reset after losing a life. */
   reset() {
-    this.setWidthState('normal');
     this.setMode('normal');
     this.setCorrupted(false);
     this.deactivateGlitch();
-    this.w = this.targetW;
     this.x = DESIGN.width / 2;
     this._lastX = this.x;
     this.vx = 0;
@@ -231,24 +208,13 @@ export class Paddle extends Container {
       if (Math.abs(delta) > maxStep) this.x = startX + Math.sign(delta) * maxStep;
     }
 
-    // Ease the width toward its target.
-    if (Math.abs(this.w - this.targetW) > 0.3) {
-      this.w += (this.targetW - this.w) * Math.min(1, dt * 14);
-    } else {
-      this.w = this.targetW;
-    }
-
     this.x = Math.max(FIELD.left + this.halfWidth, Math.min(FIELD.right - this.halfWidth, this.x));
 
     // Paddle velocity feeds "english" into the ball on contact.
     this.vx = dt > 0 ? (this.x - this._lastX) / dt : 0;
     this._lastX = this.x;
 
-    if (
-      Math.abs(this.w - this._drawnW) > 0.4 ||
-      this.mode !== this._drawnMode ||
-      this.corrupted !== this._drawnCorrupt
-    ) {
+    if (this.mode !== this._drawnMode || this.corrupted !== this._drawnCorrupt) {
       this.redraw();
     }
   }
@@ -259,7 +225,6 @@ export class Paddle extends Container {
     const half = w / 2;
     const accent = MODE_COLORS[this.mode];
 
-    this._drawnW = w;
     this._drawnMode = this.mode;
     this._drawnCorrupt = this.corrupted;
 

@@ -73,17 +73,63 @@ function detectPortrait() {
 export const IS_PORTRAIT = detectPortrait();
 
 /**
+ * Bespoke landscape width, cropped to the FACE rather than to any named
+ * aspect ratio (16:9 was tried first and read as too wide and empty; 16:10
+ * next, still with visible bare painting either side of the face — see the
+ * changelog for both).
+ *
+ * MEASURED DIRECTLY OFF THE ASSET, not eyeballed. background.png is a
+ * 1920x1080 photograph of a face with a soft vignette — there is no hard
+ * silhouette edge to trace, so "the face's boundary" was defined as the
+ * pixel column where a horizontal luminance profile crosses 20% of the way
+ * from the background floor to the face's own mid-tone plateau, sampled
+ * across y 480..560 (the narrow "waist" of the sinus illustration, the one
+ * horizontal band the neon glow never reaches into, so the profile is pure
+ * face-over-vignette with no glow contaminating it). That crossing lands at
+ * source x ~347 on the left, and by the composition's own left-right
+ * symmetry about the 960 midline, ~1573 on the right.
+ *
+ * CONVERTED THROUGH THE SAME COVER FIT `_placeBackgroundLayer` uses
+ * (`_placeBackgroundLayer` in game-scene.js): cover = 480/1080 (the height
+ * axis is what binds, since 480/1080 > 640/1920), so one source pixel is
+ * 0.4444 board pixels at FRAME_SCALE 1. Half the source face-width,
+ * (1573-960) = 613px, is therefore 272.4 board pixels either side of the
+ * frame's own centre — a landscape box 544.8 wide, rounded here to 545.
+ *
+ * SAFE FOR THE BRICK GRID BECAUSE IT WAS NEVER THE TIGHT CONSTRAINT. Every
+ * breakable and bone cell any of the 13 levels ever authors lands in columns
+ * 3..9 (see the exhaustive position map atop levels.js) — GRID.x + 3*cellW
+ * to GRID.x + 10*cellW, 152..488 in frame space, 336px wide. That is
+ * comfortably inside the ~545px the face measurement gives the board, with
+ * exactly 100px of clearance between FIELD's walls and the nearest actual
+ * brick column on both sides. Columns 0..2 and 10..12 stay dead (no level
+ * has ever placed a cell there, and check:nose fails any that tries) and
+ * simply extend past the board's edge now, same as they already extended
+ * into the frame's own unused margin before this crop — nothing is drawn
+ * there, so nothing is lost.
+ */
+const LANDSCAPE_WIDTH = 545;
+
+/**
  * The design box.
  *
- * 640x480 is the authored frame verbatim — the board this game shipped with,
- * and what a widescreen monitor gets back. 480x854 is 9:16, the shape a phone
- * actually is.
+ * 480x854 is 9:16, the shape a phone actually is. The landscape box abandons
+ * a named aspect ratio entirely and is instead cropped to the FACE in
+ * background.png — see LANDSCAPE_WIDTH above for the measurement.
+ *
+ * WHY WIDENING THE BOX, RATHER THAN THE FRAME, IS WHAT MAKES THIS FREE. The
+ * frame stays DESIGN_FRAME's 640x480 either way — nothing traced from the
+ * painting moves — and `frameX`/`frameY` place that frame at FRAME_CX/FRAME_CY
+ * exactly as they already do for the narrower portrait box, just re-centred in
+ * the wider one.
  *
  * `height` moves after load in the LANDSCAPE box only; see
  * `resolveDesignHeight` in the responsive-layout section for why the portrait
  * one is pinned.
  */
-export const DESIGN = IS_PORTRAIT ? { width: 480, height: 854 } : { width: 640, height: 480 };
+export const DESIGN = IS_PORTRAIT
+  ? { width: 480, height: 854 }
+  : { width: LANDSCAPE_WIDTH, height: 480 };
 
 /**
  * The frame the art and the geometry were authored in.
@@ -502,17 +548,16 @@ export const PADDLE = {
   y: PADDLE_REST_Y,
   height: 14,
   /**
-   * `tiny` exists only for the Rebound Effect. It is deliberately narrower than
-   * anything the original power-down table could reach: the crash has to read as
-   * a different category of punishment from an ordinary Narrow Paddle.
+   * The paddle's one and only width. Fixed for the whole run — no power-up or
+   * mechanic may change it; see Paddle in paddle.js, which no longer carries
+   * any width-state machine at all.
    *
-   * UNCHANGED BY THE PIVOT, which makes the normal paddle 18% of the board's
-   * width instead of 14%. That is a deliberate easing: the complaint the pivot
-   * answers was that the paddle is too small to hit anything with on a phone,
-   * and rescaling these to hold the old fraction would have handed back exactly
+   * 88 is 18% of the board's own width rather than the pre-pivot 14%, which is
+   * a deliberate easing: the paddle needed to be easier to hit with on a phone,
+   * and rescaling it to hold the old fraction would have handed back exactly
    * the pixels the narrower board just won.
    */
-  widths: { tiny: 34, small: 54, normal: 88, big: 132 },
+  width: 88,
   keySpeed: 560,
   /** Pointer smoothing: 1 == instant (pixel-perfect), lower == softer. */
   pointerLerp: 1,
@@ -766,14 +811,18 @@ export const PURGE = {
 /**
  * Trial gate for the Nasodren mechanics.
  *
- * Both new features — the Sneeze reflex and the Rebound capsule — are held
- * behind this one switch so the restriction can be lifted in a single edit
- * rather than hunted across three files. It is read once per scene, in the
- * GameScene constructor, and never again at runtime.
+ * The Sneeze reflex is held behind this switch so the restriction can be
+ * lifted in a single edit rather than hunted across files. It is read once
+ * per scene, in the GameScene constructor, and never again at runtime.
  *
- * TESTING BUILD. To ship on every level, set `levelIndex: null` and drop
- * `reboundWeight` to something in the range of the other power-downs (Narrow is
- * 7, Zap is 4) — 45 exists only so the capsule is easy to catch on demand.
+ * The Rebound Effect used to share this gate — a decongestant capsule that
+ * widened the paddle for a couple of seconds and then snapped it narrower
+ * than normal. It was removed along with every other paddle-width power-up
+ * (Wide, Narrow) once the paddle's width was made permanently fixed; see
+ * PADDLE.width and Paddle in paddle.js.
+ *
+ * TESTING BUILD. To ship the Sneeze reflex on every level, set
+ * `levelIndex: null`.
  */
 export const TRIAL = {
   /**
@@ -781,38 +830,6 @@ export const TRIAL = {
    * them to every level.
    */
   levelIndex: 0,
-
-  /**
-   * Rebound's weight in the drop roll while under test.
-   *
-   * The base table sums to 76, so 45 makes it roughly 37% of every capsule that
-   * falls on the trial level — a handful of bricks, not a whole wall. The
-   * capsule is folded into the roll rather than living in the POWERUPS table,
-   * so this number cannot disturb the odds on any other level.
-   */
-  reboundWeight: 45,
-};
-
-/**
- * The Rebound Effect — the chemical decongestant trap.
- *
- * Two stages on a single timer slot. `surge` is the illusion of instant relief:
- * the paddle jumps to its widest and the capsule reads as a good pickup.
- * `crash` is rhinitis medicamentosa — the relief expires into a bat narrower
- * than the player has ever had.
- *
- * The surge is short on purpose. Long enough to be enjoyed, too short to be
- * used: the player registers the gift and loses it in the same breath, which is
- * the whole argument the capsule exists to make.
- */
-export const REBOUND = {
-  /** Seconds of fake relief. */
-  surge: 2,
-  /** Seconds spent paying for it. */
-  crash: 9,
-  /** Width states each stage drives. Both must be keys of PADDLE.widths. */
-  surgeWidth: 'big',
-  crashWidth: 'tiny',
 };
 
 /**
