@@ -139,10 +139,11 @@ export class MenuScene extends Scene {
       );
 
       menu.add(
-        new Button('YÜKSEK SKORLAR', () => {
+        new Button('YÜKSEK SKORLAR', async () => {
           audio.unlock();
           audio.uiClick();
-          this._showScores();
+          const { HighScoresScene } = await import('./high-scores-scene.js');
+          sm.change(HighScoresScene, {});
         }),
       );
 
@@ -203,88 +204,6 @@ export class MenuScene extends Scene {
       controlBtn.setLabel(`KONTROL   ${CONTROL_LABELS[settings.control]}`);
       menu.add(controlBtn);
 
-      menu.add(
-        new Button('GERİ', () => {
-          audio.uiClick();
-          this._showMain();
-        }, { accent: 0xff4d5a }),
-      );
-    });
-  }
-
-  _showScores() {
-    this._swapPanel(() => {
-      const { audio, save } = this.ctx;
-
-      // Every column below is an offset from the box's own x, not an
-      // absolute board coordinate — the board is not always 640 wide (see
-      // DESIGN.width, which varies by device shape and by the 16:9
-      // landscape box), so a hardcoded x is only ever correct for the one
-      // width it was tuned against and spills the whole list out from
-      // under the panel on any other.
-      const boxW = 380;
-      const boxX = (DESIGN.width - boxW) / 2;
-      const box = panel(boxW, 250);
-      box.position.set(boxX, 152);
-      this.panelLayer.addChild(box);
-
-      const heading = makeText('YÜKSEK SKORLAR', { size: 18, anchor: 0.5 });
-      heading.position.set(DESIGN.width / 2, 172);
-      this.panelLayer.addChild(heading);
-
-      const scores = save.highScores;
-
-      if (!scores.length) {
-        const empty = makeText('HENÜZ SKOR YOK - İLK SKORU SEN YAP', {
-          size: 12,
-          anchor: 0.5,
-          color: 0x6a7bb5,
-        });
-        empty.position.set(DESIGN.width / 2, 270);
-        this.panelLayer.addChild(empty);
-      } else {
-        // Column x's, each an offset from boxX so the whole row tracks the
-        // panel wherever it lands. `nameW` is a hard ceiling on the one
-        // variable-length, player-entered field in this row — the name is
-        // already capped at NAME_MAX (8) characters at entry (see
-        // results-scene.js), but wrapping it here as well means a widened
-        // column, a longer cap, or an unusually wide glyph can never push
-        // the name into the score/level columns instead of just failing
-        // quietly against a number that no longer applies.
-        const rankX = 20;
-        const nameX = 54;
-        const scoreX = 322;
-        const lvlX = 362;
-        const nameW = scoreX - nameX - 8;
-
-        scores.slice(0, 8).forEach((entry, i) => {
-          const y = 200 + i * 22;
-          const rank = makeText(`${i + 1}.`, { size: 13, color: 0x6a7bb5 });
-          rank.position.set(boxX + rankX, y);
-
-          const name = makeText(entry.name, {
-            size: 13,
-            color: 0xffffff,
-            wordWrap: true,
-            wordWrapWidth: nameW,
-          });
-          name.position.set(boxX + nameX, y);
-
-          const score = makeText(String(entry.score).padStart(6, '0'), {
-            size: 13,
-            color: 0xffd23f,
-            anchor: [1, 0],
-          });
-          score.position.set(boxX + scoreX, y);
-
-          const lvl = makeText(`B${entry.level}`, { size: 11, color: 0x4a5580, anchor: [1, 0] });
-          lvl.position.set(boxX + lvlX, y + 1);
-
-          this.panelLayer.addChild(rank, name, score, lvl);
-        });
-      }
-
-      const menu = this._menu(400, 46);
       menu.add(
         new Button('GERİ', () => {
           audio.uiClick();

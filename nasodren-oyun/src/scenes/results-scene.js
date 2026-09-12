@@ -19,9 +19,13 @@ const VALID = /^[A-Z0-9 ]$/;
 export class ResultsScene extends Scene {
   constructor(ctx, params) {
     super(ctx, params);
-    this.name = '';
     this.entering = ctx.save.isHighScore(params.score);
+    // Prefilled from whatever this browser last submitted, so a returning
+    // player is never asked to retype their name — they can still edit or
+    // clear it before the local top-5 prompt accepts Enter.
+    this.name = this.entering ? ctx.save.lastPlayerName.slice(0, NAME_MAX) : '';
     this.submitted = false;
+    this._globalCommitted = false;
     this._t = 0;
   }
 
@@ -82,7 +86,7 @@ export class ResultsScene extends Scene {
       prompt.position.set(DESIGN.width / 2, 268);
       this.content.addChild(prompt);
 
-      this.nameText = makeText('_', { size: 26, anchor: 0.5, color: 0xffffff });
+      this.nameText = makeText(`${this.name}_`, { size: 26, anchor: 0.5, color: 0xffffff });
       this.nameText.position.set(DESIGN.width / 2, 300);
       this.content.addChild(this.nameText);
 
@@ -151,7 +155,6 @@ export class ResultsScene extends Scene {
     this.nameText.text = this.submitted ? this.name : `${this.name}_`;
   }
 
-  /** Idempotent: safe to call from several exit paths. */
   /**
    * The design box changed shape — see SceneManager.resize. Only the pieces
    * measured from the board's floor need moving; everything laid out from the
@@ -163,11 +166,46 @@ export class ResultsScene extends Scene {
     this.content.y = frameDrop();
   }
 
+  /**
+   * Idempotent: safe to call from several exit paths (Enter, then whichever
+   * menu button the player clicks next).
+   *
+   * Two separate writes, and the local one is unconditional on nothing the
+   * global one needs: `ctx.save.addScore` only runs for an actual local
+   * top-5 (see `this.entering`), but the global submit runs whenever there is
+   * a name to put on it at all — a fresh one just typed, or one remembered
+   * from a previous run — so a result that misses the local top-5 can still
+   * land on the shared leaderboard without ever prompting for anything.
+   */
   _commit() {
-    if (!this.entering || this.submitted) return;
-    this.submitted = true;
-    this.ctx.save.addScore(this.name || 'PLAYER', this.params.score, this.params.level);
-    this._refreshName();
+    if (this._committed) return;
+    this._committed = true;
+
+    if (this.entering) {
+      this.submitted = true;
+      this.ctx.save.addScore(this.name || 'PLAYER', this.params.score, this.params.level);
+      this._refreshName();
+    }
+
+    const name = this.entering ? this.name || 'PLAYER' : this.ctx.save.lastPlayerName;
+    if (name) {
+      this.ctx.save.lastPlayerName = name;
+      this._submitGlobal(name);
+    }
+  }
+
+  /**
+   * Fire-and-forget global submission — never awaited by a caller, because
+   * the score screen must not delay leaving for a network round trip.
+   * `Leaderboard.submitScore` already resolves to `null` instead of throwing
+   * on absolutely any failure (offline, blocked, RLS, a malformed response),
+   * so there is nothing here to catch; `ctx.save` and `ctx.leaderboard` are
+   * shared services rather than scene-owned, so both stay valid even if the
+   * player has already navigated away by the time this resolves.
+   */
+  async _submitGlobal(name) {
+    const id = await this.ctx.leaderboard.submitScore(name, this.params.score, this.params.level);
+    if (id) this.ctx.save.addGlobalScoreId(id);
   }
 
   update(dt) {

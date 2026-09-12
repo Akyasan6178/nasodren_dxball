@@ -4,6 +4,7 @@ import { Viewport } from './core/viewport.js';
 import { Input } from './core/input.js';
 import { AudioManager } from './core/audio-manager.js';
 import { Save } from './core/save.js';
+import { Leaderboard } from './core/leaderboard.js';
 import { SceneManager } from './core/scene-manager.js';
 import { DESIGN, MAX_DT } from './game/config.js';
 import { buildTextures } from './game/textures.js';
@@ -30,9 +31,10 @@ async function boot() {
   const save = new Save();
   const audio = new AudioManager(save.settings);
   const input = new Input(app, viewport);
+  const leaderboard = new Leaderboard();
 
   /** Shared service bag handed to every scene. */
-  const ctx = { app, viewport, input, audio, save, sm: null, mode: null, modeToggle: null };
+  const ctx = { app, viewport, input, audio, save, leaderboard, sm: null, mode: null, modeToggle: null };
   ctx.sm = new SceneManager(ctx, viewport.stage);
 
   // Rotating a phone, or dragging a desktop window into a taller shape, moves

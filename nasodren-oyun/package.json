@@ -11,8 +11,9 @@
     "check:nose:one": "node scripts/check-nose.mjs"
   },
   "dependencies": {
-    "pixi.js": "^8.0.0",
-    "pixi-filters": "^6.0.0"
+    "@supabase/supabase-js": "^2.116.0",
+    "pixi-filters": "^6.0.0",
+    "pixi.js": "^8.0.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

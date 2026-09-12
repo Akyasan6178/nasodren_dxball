@@ -436,3 +436,84 @@ başarısız olsa bile oyun asla boş bir dokuyla karşılaşmıyor.
   ekranının düzeltmeden önceki (karolar butonun altına giriyor) ve sonraki
   (temiz 4 satır, boşluklu) hâlleri ekran görüntüsüyle karşılaştırıldı;
   dikey (telefon) kutunun bu değişiklikten etkilenmediği ayrıca doğrulandı.
+
+## Revizyon Paketi 10: Global ve Yerel Liderlik Tablosu
+
+### Güvenlik: `.env` Git'e Hiç Girmemiş Olmalıydı
+
+- `.gitignore`'da `.env` için hiçbir kural yoktu — dosya henüz commit'lenmemişti
+  (untracked) ama bir sonraki `git add .` onu doğrudan Supabase anon key'iyle
+  birlikte repoya sokabilirdi. `.env`/`.env.*` kurallarını (bir `.env.example`
+  istisnasıyla) eklemek ilk iş oldu; `.env.example` (boş değerlerle) eklendi
+  ki proje, hangi değişkenlerin gerektiği belgelenmiş şekilde klonlanabilsin.
+
+### Supabase İstemcisi
+
+- `@supabase/supabase-js` kuruldu (`npm install`). `src/core/leaderboard.js`,
+  `import.meta.env.VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`'i okuyarak
+  `Leaderboard` sınıfını kuruyor; değişkenlerden biri eksikse `client = null`
+  kalıyor ve her metot bunu `null` dönerek sessizce raporluyor — hiçbir yerde
+  fırlatma (throw) yok. `main.js`'te `ctx.leaderboard` olarak her sahneye
+  paylaşılıyor (`ctx.save`, `ctx.audio` gibi).
+
+### Çift Yönlü Skor Kaydı (ResultsScene)
+
+- Yerel liste artık en iyi **5** skorla sınırlı (`LOCAL_HIGH_SCORE_MAX`,
+  `save.js` — eskiden 10'du).
+- `_commit()` iki bağımsız yazma yapıyor: yerel top-5'e girildiyse
+  `ctx.save.addScore(...)` (değişmedi), VE ayrıca — top-5'e girilmiş olsun
+  olmasın — elde gerçek bir isim varsa (yeni yazılmış ya da önceki
+  oyundan hatırlanan `ctx.save.lastPlayerName`) global gönderim de
+  (`_submitGlobal`, fire-and-forget) tetikleniyor. Böylece top-5'i
+  kaçıran bir sonuç bile, isim bir kez girildikten sonra sessizce global
+  tabloya gidiyor.
+  İsim, sonraki ziyaretler için hatırlanıyor ve alan önceden dolduruluyor
+  (adını yeniden yazmak zorunda kalmıyor).
+- Başarılı bir INSERT'ten dönen satır `id`'si (`leaderboard.submitScore`),
+  `ctx.save.addGlobalScoreId(id)` ile `myGlobalScoreIds` listesine ekleniyor.
+
+### HighScoresScene (Yeni Sahne)
+
+- Eski tek-panel `MenuScene#_showScores()` kaldırıldı;
+  `src/scenes/high-scores-scene.js` adında ayrı bir sahne olarak yeniden
+  yazıldı (ağ isteği + yükleniyor/hata durumu içeren, daha karmaşık bir UI
+  için MenuScene'in panel-swap mimarisi yerine kendi sahnesi daha temiz).
+  "YÜKSEK SKORLAR" butonu artık bu sahneye `sm.change` yapıyor.
+- İki sütun: solda **"YEREL (İLK 5)"** (`ctx.save.highScores`, her zaman
+  senkron ve hazır), sağda **"GLOBAL (İLK 20)"** (`leaderboard.fetchTop(20)`,
+  `score DESC`). Her sütun panelin kendi `x`'ine bağıl konumlandırılmış
+  (Paket 7/9'daki aynı düzeltme deseni), isim sütunu `wordWrap`'lı — hem 8
+  karakterlik istemci sınırının hem de veritabanının kendi
+  `varchar(20)` sınırının ötesinde bir isim gelse bile taşmıyor
+  (bu ikisini de canlı test ederken keşfettim, aşağıya not düştüm).
+- Global bir satırın `id`'si `ctx.save.myGlobalScoreIds` içinde bulunuyorsa
+  o satırın ismi **#FFD700** altın sarısına boyanıyor — oyuncu kendi
+  skorunu listede anında fark ediyor.
+- Sahne kapanırken (`exit()`) bir `_alive` bayrağı düşürülüyor; async
+  `fetchTop` yanıtı sahne çoktan kapanmışken gelirse yok sayılıyor —
+  yıkılmış (destroyed) bir Container'a yazmaya çalışmıyor.
+
+### Graceful Degradation
+
+- `Leaderboard`'daki her metot try/catch içinde ve HER BAŞARISIZLIK
+  MODUNDA (eksik `.env`, kapalı internet, AdBlocker, RLS reddi, bozuk
+  yanıt) aynı sinyale (`null`) çöküyor — asla fırlatmıyor.
+- **Canlı testte bulunan gerçek bir performans sorunu:** Supabase isteklerini
+  tamamen engelleyen bir ağ testinde (`page.route(...).abort()`), istemci
+  kütüphanesinin kendi iç yeniden-deneme mantığı `fetchTop`'un kendi kendine
+  başarısız olmasını **~7.2 saniye** sürdürüyordu — bu süre boyunca
+  HighScoresScene'in global sütunu "Yükleniyor..." yazısında donuk kalıyordu.
+  Düzeltme: `Leaderboard._withTimeout()`, her isteği kendi 5 saniyelik
+  saatine karşı yarıştırıyor; saat kazanırsa istek arka planda anlamsızca
+  sürse de arayüz `null` (BAĞLANTI KURULAMADI) ile hemen devam ediyor.
+- Doğrulama: gerçek Supabase projesine karşı canlı INSERT/SELECT ile uçtan
+  uca test edildi (skor gönderme → id dönme → `myGlobalScoreIds`'e ekleme →
+  global listede altın renkte görünme); ardından Supabase'e giden tüm
+  istekler engellenerek (`page.route(...).abort()`) global sütunun ~5
+  saniye içinde "BAĞLANTI KURULAMADI"na döndüğü, YEREL sütunun bundan hiç
+  etkilenmediği ve sahnenin çökmediği doğrulandı. `npm run check:nose` ve
+  13 seviyelik tam regresyon geçti.
+- **Not:** Test sırasında gerçek Supabase tablosuna 4 test satırı eklendi
+  (TESTBOT, ACE x2, LONGNAME123); anon key'in DELETE izni olmadığı için
+  (RLS'nin doğru şekilde kilitli olduğunun bir işareti) bunları koddan
+  silemedim — dilerseniz Supabase panelinden elle temizleyebilirsiniz.
