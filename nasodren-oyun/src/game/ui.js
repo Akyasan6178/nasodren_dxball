@@ -19,7 +19,15 @@ const CHARS = [
   " !\"#$%&'()*+,-./:;<=>?@[]^_`{|}~",
 ];
 
-const STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
+/**
+ * Oxanium first, the old system-monospace stack as the fallback if it never
+ * loads — see the @font-face in style.css and the preload in main.js, which
+ * is what makes the font actually ready before `_installBitmapFonts` below
+ * rasterises it. A stack rather than 'Oxanium' alone costs nothing on the
+ * happy path and means a font-load failure degrades instead of drawing
+ * whatever blank glyphs the browser's serif default would give it.
+ */
+const STACK = 'Oxanium, ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
 /**
  * False if bitmap font generation failed (very old browser, blocked canvas
@@ -39,9 +47,13 @@ export function installFonts() {
 }
 
 function _installBitmapFonts() {
+  // Oxanium's variable weight axis is what makes this distinction possible
+  // (a single physical font file, two different instances of it) — the old
+  // system stack had no such axis, so both sizes baked at the same
+  // 'bold' and leaned on size alone to tell body text from a title.
   BitmapFont.install({
     name: FONT_BODY,
-    style: { fontFamily: STACK, fontSize: 22, fontWeight: 'bold', fill: 0xffffff },
+    style: { fontFamily: STACK, fontSize: 22, fontWeight: 'normal', fill: 0xffffff },
     chars: CHARS,
     resolution: 2,
   });
@@ -83,7 +95,13 @@ export function makeText(text, opts = {}) {
     ? new BitmapText({ text, style: { fontFamily: family, fontSize: size, ...wrap } })
     : new Text({
         text,
-        style: { fontFamily: STACK, fontSize: size, fontWeight: 'bold', fill: 0xffffff, ...wrap },
+        style: {
+          fontFamily: STACK,
+          fontSize: size,
+          fontWeight: title ? 'bold' : 'normal',
+          fill: 0xffffff,
+          ...wrap,
+        },
       });
 
   t.tint = color;

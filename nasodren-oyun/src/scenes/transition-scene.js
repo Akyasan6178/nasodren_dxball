@@ -55,8 +55,12 @@ const TIP_WRAP_WIDTH = 400;
 /** Where the tip title sits, for the board's current height. */
 const tipTitleY = () => DESIGN.height / 2 + ART_CLEARANCE;
 
-/** Same heavy stroke/shadow treatment on every label here — see heavyText(). */
-const FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
+/**
+ * Same heavy stroke/shadow treatment on every label here — see heavyText().
+ * Oxanium first, same fallback stack as ui.js if it never loads — see the
+ * @font-face in style.css and the preload in main.js.
+ */
+const FONT_STACK = 'Oxanium, ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
 /**
  * Cyclamen tips — shown under `loading3` (the cyclamen flower).

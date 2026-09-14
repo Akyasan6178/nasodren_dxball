@@ -517,3 +517,68 @@ başarısız olsa bile oyun asla boş bir dokuyla karşılaşmıyor.
   (TESTBOT, ACE x2, LONGNAME123); anon key'in DELETE izni olmadığı için
   (RLS'nin doğru şekilde kilitli olduğunun bir işareti) bunları koddan
   silemedim — dilerseniz Supabase panelinden elle temizleyebilirsiniz.
+
+## Revizyon Paketi 11: Görsel Cilalama ve Font Entegrasyonu
+
+### Arka Plan
+
+- `bg-red.png` içeriği güncellenmiş olarak bulundu (dosya adı aynı kaldığı
+  için kodda hiçbir referans değişikliği gerekmedi — `assets.js`/
+  `textures.js` zaten bu isimle çalışıyordu). **Ancak yeni dosyada gerçek
+  bir sorun tespit ettim** — bkz. aşağıdaki "Bulunan Sorun" notu.
+
+### Oxanium Font Entegrasyonu
+
+- `src/style.css`'in en üstüne `@font-face` eklendi
+  (`/fonts/Oxanium-VariableFont_wght.ttf`'i işaret ediyor). Tek fiziksel
+  dosya tüm ağırlık eksenini kapsadığı için `font-weight: 200 800;` bir
+  ARALIK olarak tanımlandı — bu, hem `normal` hem `bold` (veya PixiJS
+  TextStyle'ın isteyeceği herhangi bir sayısal ağırlık) için gerçek bir
+  varyasyonun kullanılmasını sağlıyor; aralık olmasaydı tarayıcı "bold"u
+  sahte (skew/kalınlaştırma) olarak üretirdi.
+- **Kritik olan preload sırası:** `main.js`'e `preloadFonts()` eklendi —
+  `document.fonts.load('400 16px Oxanium')` ve `('700 16px Oxanium')`,
+  `createPixiApp()` ile `Promise.all` içinde EŞ ZAMANLI çalışıyor (ikisi
+  de bağımsız ve zaman alıyor), ama ikisi de `installFonts()`'tan ÖNCE
+  tamamlanıyor. Bunun zorunlu olma nedeni: `installFonts()`,
+  `BitmapFont.install()` ile metni gizli bir canvas'a BİR KEZ çizip
+  dokuya (texture atlas) gömüyor — bu bir anlık fotoğraf, canlı bir
+  referans değil. Font o an hazır değilse, atlas o oturum boyunca sonsuza
+  kadar yedek (fallback) fontla kalırdı; font birkaç ms sonra gelmiş olsa
+  bile hiçbir şey değişmezdi. `document.fonts.load` başarısız olursa
+  (bozuk dosya, 404) hata yakalanıp yalnızca uyarı basılıyor — font
+  entegrasyonu asla oyunun açılışını kilitleyemez veya çökertemez.
+- `src/game/ui.js`'teki `STACK` ve `src/scenes/transition-scene.js`'teki
+  `FONT_STACK`, `'Oxanium, ui-monospace, ...'` olarak güncellendi — Oxanium
+  önce, eski sistem yığını hâlâ yedek olarak duruyor. Oyundaki HER metin
+  bu iki sabitten birinden geçtiği için (`makeText`/`heavyText`), tek
+  seferlik bir değişiklikle menü, HUD, Bölüm Seç, Yüksek Skorlar,
+  TransitionScene ve ReviveScene dahil tüm sahneler kapsandı — ayrı ayrı
+  dokunulması gereken başka bir `fontFamily` tanımı yok (doğrulandı).
+- Ağırlık ayrımı: `FONT_BODY` artık `normal`, `FONT_TITLE` `bold` (ikisi de
+  eskiden aynı sabit `'bold'`'du — eski sistem fontunun ağırlık ekseni
+  olmadığı için boyutla idare ediliyordu). `heavyText()`'in kendi `900`
+  ağırlığına dokunulmadı; Oxanium'un üst sınırına (800) otomatik olarak
+  kenetleniyor, o da zaten istenen "çok kalın" görünüm.
+- Doğrulama: `document.fonts.check('16px Oxanium')` → `true`,
+  `document.fonts` içinde `status:"loaded", weight:"200 800"` olarak
+  listeleniyor. Menü, oyun ekranı, Bölüm Seç, Sonuç ve Yüksek Skorlar
+  sahnelerinin ekran görüntüleri Oxanium'un düzgün render edildiğini
+  doğruluyor. `npm run check:nose` ve 13 seviyelik tam regresyon
+  (gerçek oynanış + duraklatma dahil) temiz geçti — responsive yapı ve
+  Supabase entegrasyonu bu değişiklikten etkilenmedi.
+
+### Bulunan Sorun: `bg-red.png` İçinde Tasarım Aracı Artığı
+
+- Oyun ekranını yeni fontla test ederken arka planda GERÇEK bir görsel
+  hata fark ettim: yeni `bg-red.png` dosyasının sol-alt maksiller
+  bölgesinde, gerçek bir oyun tuğlası DEĞİL, bir tasarım aracından
+  (Figma/Photoshop benzeri) SEÇİM TUTAMAÇLARIYLA (mavi kare handle'lar)
+  birlikte dışa aktarılmış bir tuğla grafiği gömülü duruyor. Bunu hem
+  ham dosyada hem de canlı oyun ekranında yakınlaştırarak doğruladım —
+  her seviyede, tam olarak aynı sabit konumda görünüyor (gerçek tuğlalar
+  gibi seviyeye göre değişmiyor, çünkü arka planın kendisine gömülü).
+  Kod tarafında düzeltilebilecek bir şey değil — kaynak PNG'nin
+  düzeltilmiş/temiz bir sürümle yeniden dışa aktarılması gerekiyor.
+  Dilerseniz bulduğum konumu (maksiller bölgenin sol-alt köşesi) işaret
+  eden yakınlaştırılmış görüntüyü paylaşabilirim.

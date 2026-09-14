@@ -1,3 +1,27 @@
+/**
+ * Oxanium, the game's display/UI typeface. One variable file covers the
+ * whole weight axis (roughly 200-800), so a single @font-face with a weight
+ * RANGE is what lets both `font-weight: normal` and `font-weight: bold` (or
+ * any numeric weight a PixiJS TextStyle asks for) resolve to a real instance
+ * of it instead of the browser faking bold by skewing/thickening the
+ * regular glyphs synthetically.
+ *
+ * PRELOADED IN CODE, NOT LEFT TO CSS. `main.js` awaits
+ * `document.fonts.load(...)` before `installFonts()` bakes the bitmap atlas
+ * PixiJS text draws from — a plain @font-face here only makes the font
+ * available to *request*; nothing forces it to be ready before that bake
+ * happens, and a bake that ran before the file finished loading would be
+ * stuck on the fallback forever (bitmap atlases are rasterised once, not
+ * re-rendered when a font swaps in later the way live DOM text is).
+ */
+@font-face {
+  font-family: "Oxanium";
+  src: url("/fonts/Oxanium-VariableFont_wght.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --bg: #05050b;
   --accent: #35d0d8;

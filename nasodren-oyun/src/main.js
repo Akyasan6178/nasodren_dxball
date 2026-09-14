@@ -17,7 +17,12 @@ import { BootScene } from './scenes/boot-scene.js';
 async function boot() {
   const root = document.getElementById('game-root');
 
-  const app = await createPixiApp({ parent: root, background: '#05050b' });
+  // Run concurrently with renderer init — the two are independent, and both
+  // take real time (WebGPU/WebGL setup, a font-file download).
+  const [app] = await Promise.all([
+    createPixiApp({ parent: root, background: '#05050b' }),
+    preloadFonts(),
+  ]);
   console.info(`[brickstorm] renderer: ${getRendererName(app)}`);
 
   // Fonts and art are generated from the renderer, so they must come after init
@@ -74,6 +79,39 @@ async function boot() {
 
   globalThis.__BRICKSTORM__ = ctx;
   return ctx;
+}
+
+/**
+ * Waits for Oxanium (see the @font-face in style.css) to actually be usable
+ * before any text gets drawn with it.
+ *
+ * WHY THIS HAS TO BLOCK BOOT, RATHER THAN JUST DECLARING THE @font-face AND
+ * MOVING ON. `installFonts()` bakes PixiJS's bitmap font atlases by rendering
+ * text to a hidden canvas ONCE, at startup — it is a screenshot of whatever
+ * font the browser had ready at that exact moment, not a live reference that
+ * updates when Oxanium finishes downloading a moment later. Skip this wait
+ * and the bake would silently keep the CSS stack's fallback (system
+ * monospace) baked in for the rest of the session, however long the real
+ * font took to arrive.
+ *
+ * Requesting two weights covers the two BitmapFont installs in ui.js
+ * (`normal`/`bold`) — one physical variable-font file backs both, so this
+ * is two cheap loads of an already-fetched resource, not two downloads.
+ *
+ * NEVER FATAL. A blocked or 404'd font file must not hang boot forever —
+ * `document.fonts.load` rejects rather than hanging on a real failure, and
+ * the catch here means that rejection just falls back to style.css's own
+ * `font-family` stack (Oxanium, then the system monospace it replaced).
+ */
+async function preloadFonts() {
+  try {
+    await Promise.all([
+      document.fonts.load('400 16px Oxanium'),
+      document.fonts.load('700 16px Oxanium'),
+    ]);
+  } catch (err) {
+    console.warn('[brickstorm] Oxanium failed to preload — falling back to the system stack.', err);
+  }
 }
 
 /**
