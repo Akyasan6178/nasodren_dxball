@@ -582,3 +582,52 @@ başarısız olsa bile oyun asla boş bir dokuyla karşılaşmıyor.
   düzeltilmiş/temiz bir sürümle yeniden dışa aktarılması gerekiyor.
   Dilerseniz bulduğum konumu (maksiller bölgenin sol-alt köşesi) işaret
   eden yakınlaştırılmış görüntüyü paylaşabilirim.
+
+## Revizyon Paketi 12: Zorunlu İsim Girişi
+
+- `ResultsScene`, boş veya yalnızca boşluk karakterlerinden oluşan bir isimle
+  artık HİÇBİR şekilde geçilemiyor. Eskiden `this.name || 'PLAYER'` her boş
+  girişi sessizce `'PLAYER'` ismine çeviriyordu — hem yerel listede hem
+  Supabase'deki global tabloda; artık `_isNameValid()`
+  (`this.name.trim().length > 0`, ya da isim hiç istenmiyorsa `true`)
+  `_commit()`'in ta kendisinde reddediyor: `this.entering` iken geçersiz bir
+  isimle çağrılırsa `_commit()` hiçbir şey yazmadan çıkıyor.
+- Üç menü butonu da (**CANLANDIR**, **TEKRAR OYNA**, **ANA MENÜ** — üçü de
+  varsa) isim geçerli olana kadar `Button.setEnabled(false)` ile pasif
+  (yarı saydam, tıklanamaz) tutuluyor; her tuş vuruşunda `_updateValidity()`
+  yeniden hesaplanıyor.
+- **Test sırasında gerçek bir kaçak buldum ve kapattım:** İlk halde yalnızca
+  TEKRAR OYNA/ANA MENÜ'yü pasif bırakmıştım (CANLANDIR'ı kasıtlı olarak
+  hariç tutmuştum, çünkü aynı koşuyu sürdürüyor). Ama `VerticalMenu`
+  (`ui.js`), `ResultsScene`'in kendi `_onKey`'inden TAMAMEN BAĞIMSIZ bir
+  `input.onKey` dinleyicisi kuruyor ve Enter'da her zaman O AN SEÇİLİ
+  butonu (varsayılan indeks 0 — CANLANDIR listede varsa ilk sırada
+  eklendiği için hep o) aktive ediyor. Sonuç: boş isimle Enter'a basmak,
+  `ResultsScene`'in kendi reddi çalışsa bile, AYNI tuş vuruşunda
+  VerticalMenu'nün CANLANDIR'ı sessizce aktive etmesiyle oyuncuyu
+  ReviveScene'e taşıyordu — isim alanı hiç çözülmeden. Şimdi üç buton da
+  aynı `_isNameValid()` ile kapılı.
+- Boşluk uyarısı: isim alanının caret'i (`_`) isim geçersizken kırmızıya
+  (`0xff4d5a`, ANA MENÜ butonunun aynı "tehlike" rengi) dönüyor; Enter boş
+  isimle reddedildiğinde alanın hemen altında **"BİR İSİM YAZMALISIN"**
+  uyarısı beliriyor, bir sonraki tuş vuruşunda kayboluyor.
+- Önceden kayıtlı bir isim varsa (`ctx.save.lastPlayerName`) alan otomatik
+  doluyor ve butonlar baştan aktif geliyor (bu davranış Paket 10'dan beri
+  zaten vardı); ilk kez oynayan bir oyuncuda alan boş başlıyor, bu yüzden
+  butonlar da baştan pasif.
+- Kaydedilen isim artık `trim()` edilmiş hâliyle yazılıyor (`" BOB"` değil
+  `"BOB"`) — hem yerel listede hem global gönderimde.
+- **Bulunan, düzeltilMEyen bir ayrı tuhaflık:** Boşluk tuşu bu oyunda hem
+  "isme boşluk karakteri ekle" hem de VerticalMenu'nün "seçili butonu
+  aktive et" tuşu — isim zaten geçerliyken sona bir boşluk eklemeye
+  çalışmak, o an seçili butonu da aktive edip sahneden çıkarabiliyor. Bu,
+  bu paketten önce de var olan, VerticalMenu'nün her yerde paylaştığı bir
+  tuş çakışması; bu paketin kapsamı dışında bıraktım ama bilginize.
+- Doğrulama: Playwright ile — boş isimle Enter (reddedildi, uyarı gösterildi,
+  hiçbir yere kaydedilmedi), yalnızca boşluklu isimle Enter (aynı şekilde
+  reddedildi), devre dışı butona tıklama (sahne değişmedi), geçerli isimle
+  commit (doğru trim'lenmiş hâliyle hem yerel hem `lastPlayerName`'e
+  yazıldı), hatırlanan isimle ikinci bir ziyarette buton baştan aktif, ve
+  isim hiç istenmeyen (top-5 dışı ama liste dolu) bir sonuçta butonların
+  hiç kapılı olmadığı ayrı ayrı doğrulandı. `npm run check:nose` ve 13
+  seviyelik tam regresyon (gerçek oynanış dahil) temiz geçti.

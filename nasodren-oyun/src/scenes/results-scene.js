@@ -90,6 +90,14 @@ export class ResultsScene extends Scene {
       this.nameText.position.set(DESIGN.width / 2, 300);
       this.content.addChild(this.nameText);
 
+      // Shown only once the player has tried to leave with nothing typed —
+      // see _onKey's Enter branch. Silent rejection would just look like a
+      // stuck Enter key; this is the "why didn't that work" answer.
+      this.warning = makeText('BİR İSİM YAZMALISIN', { size: 10, anchor: 0.5, color: 0xff4d5a });
+      this.warning.position.set(DESIGN.width / 2, 322);
+      this.warning.visible = false;
+      this.content.addChild(this.warning);
+
       this._offKey = input.onKey((e) => this._onKey(e));
     }
 
@@ -105,31 +113,71 @@ export class ResultsScene extends Scene {
     this.menu.position.set((DESIGN.width - 260) / 2, this.entering ? 340 : 300);
     this.content.addChild(this.menu);
 
+    // EVERY BUTTON HERE IS GATED ON _isNameValid() WHEN IT EXISTS, CANLANDIR
+    // INCLUDED — not just the two that leave for good. VerticalMenu (see
+    // ui.js) runs its own independent `input.onKey` listener, entirely apart
+    // from this scene's own `_onKey`, and on Enter it activates whichever
+    // button is currently *selected* — index 0 by default, which is
+    // CANLANDIR whenever it exists, added first. Leaving it ungated meant an
+    // empty-name Enter press was correctly refused by `_commit()` in this
+    // scene's own handler and then, on the very same keypress, silently
+    // waved through by VerticalMenu's — the player left with the field never
+    // resolved, just via a different door. Disabling the button is the real
+    // gate (Button.activate() no-ops while `enabled` is false, so the
+    // callback body never runs at all); the check inside each callback below
+    // is a second, cheap guarantee that nothing can slip through it.
     if (showRevive) {
-      this.menu.add(
-        new Button(`CANLANDIR (${revivesLeft} KALDI)`, () => {
-          audio.uiClick();
-          this.ctx.sm.change(ReviveScene, { run, levelIndex: this.params.levelIndex });
-        }, { accent: 0x86e05a }),
-      );
+      this.canlandirBtn = new Button(`CANLANDIR (${revivesLeft} KALDI)`, () => {
+        if (!this._isNameValid()) return;
+        audio.uiClick();
+        this.ctx.sm.change(ReviveScene, { run, levelIndex: this.params.levelIndex });
+      }, { accent: 0x86e05a });
+      this.menu.add(this.canlandirBtn);
     }
 
-    this.menu.add(
-      new Button('TEKRAR OYNA', () => {
-        this._commit();
-        audio.uiClick();
-        this.ctx.sm.change(LevelSelectScene, {});
-      }),
-    );
+    this.tekrarOynaBtn = new Button('TEKRAR OYNA', () => {
+      if (!this._isNameValid()) return;
+      this._commit();
+      audio.uiClick();
+      this.ctx.sm.change(LevelSelectScene, {});
+    });
+    this.menu.add(this.tekrarOynaBtn);
 
-    this.menu.add(
-      new Button('ANA MENÜ', async () => {
-        this._commit();
-        audio.uiClick();
-        const { MenuScene } = await import('./menu-scene.js');
-        this.ctx.sm.change(MenuScene, {});
-      }, { accent: 0xff4d5a }),
-    );
+    this.anaMenuBtn = new Button('ANA MENÜ', async () => {
+      if (!this._isNameValid()) return;
+      this._commit();
+      audio.uiClick();
+      const { MenuScene } = await import('./menu-scene.js');
+      this.ctx.sm.change(MenuScene, {});
+    }, { accent: 0xff4d5a });
+    this.menu.add(this.anaMenuBtn);
+
+    this._updateValidity();
+  }
+
+  /**
+   * Whether the screen may be left. Always true once no name is being
+   * asked for at all (`!this.entering`); otherwise requires at least one
+   * non-space character — a name of pure spaces is exactly as useless as an
+   * empty one and both used to slip through as `'PLAYER'`.
+   */
+  _isNameValid() {
+    return !this.entering || this.name.trim().length > 0;
+  }
+
+  /**
+   * Keeps every valid/invalid-dependent visual in sync: all three menu
+   * buttons that can exist here (see their construction above) and the name
+   * field's own colour, which turns the same red as ANA MENÜ's danger
+   * accent while empty so the requirement reads as a property of the field
+   * itself and not just an inexplicably dead button.
+   */
+  _updateValidity() {
+    const valid = this._isNameValid();
+    this.canlandirBtn?.setEnabled(valid);
+    this.tekrarOynaBtn?.setEnabled(valid);
+    this.anaMenuBtn?.setEnabled(valid);
+    if (this.nameText) this.nameText.tint = valid ? 0xffffff : 0xff4d5a;
   }
 
   _onKey(e) {
@@ -137,7 +185,15 @@ export class ResultsScene extends Scene {
 
     if (e.code === 'Backspace') {
       this.name = this.name.slice(0, -1);
+      if (this.warning) this.warning.visible = false;
     } else if (e.code === 'Enter') {
+      if (!this._isNameValid()) {
+        // Rejected — same rule _commit() itself enforces, surfaced here so
+        // an empty Enter reads as "you need to type something" rather than
+        // as a dead key. Cleared by the next keystroke, above and below.
+        if (this.warning) this.warning.visible = true;
+        return;
+      }
       // Enter is also the menu's activate key; committing here is harmless
       // because _commit() is idempotent.
       this._commit();
@@ -145,9 +201,11 @@ export class ResultsScene extends Scene {
     } else {
       const ch = e.key.toUpperCase();
       if (VALID.test(ch) && this.name.length < NAME_MAX) this.name += ch;
+      if (this.warning) this.warning.visible = false;
     }
 
     this._refreshName();
+    this._updateValidity();
   }
 
   _refreshName() {
@@ -170,24 +228,38 @@ export class ResultsScene extends Scene {
    * Idempotent: safe to call from several exit paths (Enter, then whichever
    * menu button the player clicks next).
    *
-   * Two separate writes, and the local one is unconditional on nothing the
-   * global one needs: `ctx.save.addScore` only runs for an actual local
-   * top-5 (see `this.entering`), but the global submit runs whenever there is
-   * a name to put on it at all — a fresh one just typed, or one remembered
-   * from a previous run — so a result that misses the local top-5 can still
-   * land on the shared leaderboard without ever prompting for anything.
+   * REFUSES OUTRIGHT WHEN A NAME IS BEING ASKED FOR AND NONE WAS GIVEN. A
+   * blank or pure-space name used to fall back to the literal string
+   * `'PLAYER'`, both locally and on the shared leaderboard — every skipped
+   * entry landed under the same identity, indistinguishable from every other
+   * skipped entry. `_isNameValid()` is also what the two "leave for good"
+   * buttons gate themselves on, so in practice this branch only matters for
+   * the Enter key path — but it stays here too, unconditionally, rather than
+   * trusting the UI gate alone to be the only thing standing between an
+   * empty field and a saved score.
+   *
+   * Two separate writes otherwise, and the local one is unconditional on
+   * nothing the global one needs: `ctx.save.addScore` only runs for an
+   * actual local top-5 (see `this.entering`), but the global submit runs
+   * whenever there is a name to put on it at all — a fresh one just typed,
+   * or one remembered from a previous run — so a result that misses the
+   * local top-5 can still land on the shared leaderboard without ever
+   * prompting for anything.
    */
   _commit() {
-    if (this._committed) return;
+    if (this._committed || !this._isNameValid()) return;
     this._committed = true;
+
+    const trimmedName = this.name.trim();
 
     if (this.entering) {
       this.submitted = true;
-      this.ctx.save.addScore(this.name || 'PLAYER', this.params.score, this.params.level);
+      this.name = trimmedName;
+      this.ctx.save.addScore(trimmedName, this.params.score, this.params.level);
       this._refreshName();
     }
 
-    const name = this.entering ? this.name || 'PLAYER' : this.ctx.save.lastPlayerName;
+    const name = this.entering ? trimmedName : this.ctx.save.lastPlayerName;
     if (name) {
       this.ctx.save.lastPlayerName = name;
       this._submitGlobal(name);
