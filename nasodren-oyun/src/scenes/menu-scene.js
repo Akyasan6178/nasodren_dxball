@@ -31,15 +31,22 @@ export class MenuScene extends Scene {
     this.content.y = frameDrop();
     this.view.addChild(this.content);
 
-    const title = makeText('BRICKSTORM', { size: 46, anchor: 0.5, title: true, color: 0x35d0d8 });
+    const title = makeText('SİNÜS AÇ', { size: 46, anchor: 0.5, title: true, color: 0x35d0d8 });
     title.position.set(DESIGN.width / 2, 92);
     this.content.addChild(title);
     this.title = title;
 
-    const tagline = makeText('KLASİK TARZDA BİR TUĞLA KIRMA OYUNU', {
+    // Longer than the tagline it replaced, so it gets the wrap safety net that
+    // one never needed — wrapped rather than shrunk, so it stays readable at
+    // the same size on the narrowest board (480px, portrait) instead of
+    // trading legibility for a single line.
+    const tagline = makeText('SİNÜSLERİ SİKLAMEN ÇİÇEĞİ İLE TEMİZLEME OYUNU', {
       size: 11,
       anchor: 0.5,
       color: 0x6a7bb5,
+      wordWrap: true,
+      wordWrapWidth: DESIGN.width - 40,
+      align: 'center',
     });
     tagline.position.set(DESIGN.width / 2, 128);
     this.content.addChild(tagline);

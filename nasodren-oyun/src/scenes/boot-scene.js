@@ -31,7 +31,7 @@ export class BootScene extends Scene {
     this.content.y = frameDrop();
     this.view.addChild(this.content);
 
-    const title = makeText('BRICKSTORM', { size: 44, anchor: 0.5, title: true, color: 0x35d0d8 });
+    const title = makeText('SİNÜS AÇ', { size: 44, anchor: 0.5, title: true, color: 0x35d0d8 });
     title.position.set(DESIGN.width / 2, 180);
     this.content.addChild(title);
 

@@ -134,9 +134,13 @@ export class LevelSelectScene extends Scene {
     label.position.set(8, 6);
     tile.addChild(label);
 
-    const name = makeText(level.name.toUpperCase(), {
+    // Turkish locale — see the same fix in hud.js for why a plain
+    // toUpperCase() silently breaks Turkish names with a lowercase 'i'.
+    const name = makeText(level.name.toLocaleUpperCase('tr'), {
       size: 9,
       color: unlocked ? 0x9fb0e0 : 0x3d4468,
+      wordWrap: true,
+      wordWrapWidth: CELL_W - 12,
     });
     name.position.set(8, CELL_H - 17);
     tile.addChild(name);

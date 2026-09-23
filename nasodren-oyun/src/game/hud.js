@@ -322,7 +322,11 @@ export class Hud extends Container {
 
     const fits = () => this.levelValue.width / 2 <= room;
 
-    this.levelValue.text = name ? `${index + 1}  ${name.toUpperCase()}` : number;
+    // Turkish locale, not the default: a plain toUpperCase() maps lowercase
+    // 'i' to dotless 'I' (correct for English, wrong for Turkish level
+    // names like "İlk Belirtiler" — see levels.js — which need the dotted
+    // 'İ' that only the tr locale's case rules produce).
+    this.levelValue.text = name ? `${index + 1}  ${name.toLocaleUpperCase('tr')}` : number;
     if (!fits()) this.levelValue.text = number;
 
     const visible = fits();

@@ -631,3 +631,73 @@ başarısız olsa bile oyun asla boş bir dokuyla karşılaşmıyor.
   isim hiç istenmeyen (top-5 dışı ama liste dolu) bir sonuçta butonların
   hiç kapılı olmadığı ayrı ayrı doğrulandı. `npm run check:nose` ve 13
   seviyelik tam regresyon (gerçek oynanış dahil) temiz geçti.
+
+## Revizyon Paketi 13: Tematik Dönüşüm ve Farkındalık İçerikleri
+
+### İsim ve Alt Başlık
+
+- Oyunun adı her yerde **"Sinüs Aç"** oldu: sekme başlığı (`index.html`),
+  açılış ekranı (`boot-scene.js`) ve ana menü (`menu-scene.js`). Menüdeki
+  alt başlık **"SİNÜSLERİ SİKLAMEN ÇİÇEĞİ İLE TEMİZLEME OYUNU"** olarak
+  güncellendi — eskisinden belirgin biçimde uzun olduğu için `wordWrap`
+  eklendi (dar 480px'lik dikey kutuda bile tek satıra sığıyor, ama artık
+  sığmasa da taşmayacak).
+- `brickstorm.*` localStorage anahtarları, `__BRICKSTORM__` global'i,
+  `BrickstormBody`/`BrickstormTitle` bitmap font adları gibi İÇ/teknik
+  kimlikler kasıtlı olarak dokunulmadan bırakıldı — bunlar oyuncuya hiç
+  görünmüyor ve değiştirilmeleri mevcut oyuncuların kayıtlı verilerini
+  (yüksek skorlar, kilit açma ilerlemesi) sıfırlardı.
+
+### Seviye İsimleri
+
+- Tüm 13 seviye ismi İngilizceden Türkçeye, tıkanıklıktan iyileşmeye giden
+  tematik bir yay oluşturacak şekilde çevrildi: **Tıkalı Kanallar → İlk
+  Belirtiler → Saponin Etkisi → Mukus Birikimi → Derin Nefes → Baskı
+  Altında → Direnç Duvarı → İltihap Fırtınası → Kapalı Geçit →
+  Temizlenme Anı → Son Tıkanıklık → Sinüs Fırtınası → Kronik Sinüzit**
+  (patron seviyesi).
+- **Bulunan ve düzeltilen gerçek bir hata:** `hud.js` ve
+  `level-select-scene.js`, seviye ismini büyütmek için düz
+  `.toUpperCase()` çağırıyordu. Bu, İngilizce isimlerde hiç sorun
+  çıkarmıyordu, ama Türkçe metinde küçük 'i' harfini varsayılan (Türkçe
+  olmayan) kurallarla noktasız 'I'ya çeviriyor — "İlk Belirtiler" gibi bir
+  isim "ILK BELIRTILER" olarak (yanlış) görünecekti. İkisi de
+  `.toLocaleUpperCase('tr')`'a çevrildi; artık "İLK BELİRTİLER" doğru
+  noktalı İ ile basılıyor.
+- Bölüm Seç karolarındaki isim metnine ayrıca `wordWrap` eklendi (yeni
+  isimlerin bazıları eskilerinden belirgin uzun — "İltihap Fırtınası" gibi);
+  test edilen hiçbir isim gerçekte sarmalanmadı ama güvenlik payı olarak
+  kaldı.
+
+### Geçiş Ekranı İpuçları — Tamamen Yeniden Yazıldı
+
+- Eski, genel "sinüzit nedir" tonlu ipucu metinleri tamamen silindi.
+  Yerlerine, `yasasinsaglik.com/antibiyotik-direnci` ve
+  `yasasinsaglik.com/siklamen` sayfalarından alınan somut, doğrulanmış
+  gerçeklere dayanan **9 yeni ipucu** yazıldı (görsel başına 3, üç havuz
+  arasında eşit dağıtıldı, mekanizma Paket 7'den değişmedi — merkez
+  görsel bir kez seçiliyor, ipucu o seçime göre geliyor):
+  - **`loading1` (virüs) — viral sinüzit ve antibiyotik gerçeği:**
+    akut sinüzitin %90-98'inin viral olduğu, akıntı renginin bakteriyel
+    kanıt sayılmadığı, gereksiz antibiyotiğin iyileşmeyi hızlandırmadığı.
+  - **`loading2` (kalp) — direncin küresel bedeli:** 2021'de ~4.7 milyon
+    ölümle ilişkilendirilen antibiyotik direnci, izlenen bakteri-antibiyotik
+    kombinasyonlarının %40'ında yükselen direnç, bağışıklık sisteminin
+    viral sinüzitle kendi başına mücadele edebildiği mesajı.
+  - **`loading3` (siklamen, revive-scene.js ile paylaşılan `TIPS`) —
+    saponin mekanizması:** yumrulardaki doğal saponinlerin mukoza
+    üzerindeki drenaj etkisi, 317 hastalık CHRONOS çalışmasının
+    antibiyotiğe eşdeğer bulgusu, viral sinüzitte antibiyotiğin fayda
+    sağlamadığı ama siklamenin doğal bir alternatif sunduğu.
+- `TIPS` (siklamen havuzu) 5'ten 3 maddeye indi; `revive-scene.js`'teki
+  "beş siklamen gerçeği" diyen bayat yorum ve "RUN.maxRevives her zaman
+  TIPS.length'ten az" iddiası (artık eşit, ama mantık — kalan en az bir
+  ipucu olduğu sürece tekrar döngüsü hiç tetiklenmiyor — hâlâ doğru)
+  güncellendi.
+- Doğrulama: Playwright ile 60 ardışık ziyaret örneklendi, her üç havuzun
+  TAM OLARAK kendi 3 ipucunu ürettiği ve hiçbir çapraz eşleşme olmadığı
+  doğrulandı; hem masaüstü (545px) hem dar dikey (420px) ekranda her
+  ipucunun `wordWrap` ile düzgün sarmalandığı, hiçbir metnin yükleme
+  yazısıyla çakışmadığı ekran görüntüleriyle teyit edildi. `npm run
+  check:nose` ve 13 seviyelik tam regresyon (gerçek oynanış dahil) temiz
+  geçti.

@@ -179,7 +179,7 @@ export const LEVELS = [
      * arcade rectangles floating beside a painting of a face — and where they
      * obstructed a part of the board the ball already lives in.
      */
-    name: 'Viral ARS',
+    name: 'Tıkalı Kanallar',
     music: 0,
     cavity: true,
     rows: [
@@ -201,7 +201,7 @@ export const LEVELS = [
   },
   {
     /** Pillars — one column per chamber, roof to floor: the section at its most vertical. 10 cells (5/5). */
-    name: 'Pillars',
+    name: 'İlk Belirtiler',
     music: 0,
     cavity: true,
     rows: [
@@ -223,7 +223,7 @@ export const LEVELS = [
   },
   {
     /** Arrowhead — one cell at each roof widening to three at the maxillary belly. 10 cells (5/5). */
-    name: 'Arrowhead',
+    name: 'Saponin Etkisi',
     music: 0,
     cavity: true,
     rows: [
@@ -256,7 +256,7 @@ export const LEVELS = [
      * the middle of the maxillary air and blocking a corridor the ball was
      * already in.
      */
-    name: 'Vault',
+    name: 'Mukus Birikimi',
     music: 0,
     cavity: true,
     rows: [
@@ -278,7 +278,7 @@ export const LEVELS = [
   },
   {
     /** Ghosts — both frontal chambers occupied, both maxillary wings completely empty. 6 cells (3/3). */
-    name: 'Ghosts',
+    name: 'Derin Nefes',
     music: 1,
     cavity: true,
     rows: [
@@ -300,7 +300,7 @@ export const LEVELS = [
   },
   {
     /** Checkerboard — every cell a small one with a gap around it; nothing can be farmed by ricochet. 8 cells (4/4). */
-    name: 'Checkerboard',
+    name: 'Baskı Altında',
     music: 1,
     cavity: true,
     rows: [
@@ -330,7 +330,7 @@ export const LEVELS = [
      * rising shot can take into each chamber are both spoken for. With only
      * six cells on the board the whole level is that approach problem.
      */
-    name: 'Fortress',
+    name: 'Direnç Duvarı',
     music: 1,
     cavity: true,
     rows: [
@@ -352,7 +352,7 @@ export const LEVELS = [
   },
   {
     /** Downpour — halves only, draining down the medial wall of both chambers. 10 cells (5/5). */
-    name: 'Downpour',
+    name: 'İltihap Fırtınası',
     music: 1,
     cavity: true,
     rows: [
@@ -381,7 +381,7 @@ export const LEVELS = [
      * something no other level asks of bone: it makes the wasted trip up there
      * expensive to take by accident, instead of merely pointless.
      */
-    name: 'Bunker',
+    name: 'Kapalı Geçit',
     music: 2,
     cavity: true,
     rows: [
@@ -403,7 +403,7 @@ export const LEVELS = [
   },
   {
     /** Nova — both medial walls and both floors, the belly of each wing left hollow. 12 cells (6/6). */
-    name: 'Nova',
+    name: 'Temizlenme Anı',
     music: 2,
     cavity: true,
     rows: [
@@ -436,7 +436,7 @@ export const LEVELS = [
      * Fortress uses the tighter r3c4/r3c8 pairing instead, which shields the
      * cells more directly but leaves the flank open.
      */
-    name: 'Gauntlet',
+    name: 'Son Tıkanıklık',
     music: 2,
     cavity: true,
     rows: [
@@ -458,7 +458,7 @@ export const LEVELS = [
   },
   {
     /** Brickstorm — all fourteen legal positions. There is no denser layout the painting will take. 14 cells (7/7). */
-    name: 'Brickstorm',
+    name: 'Sinüs Fırtınası',
     music: 2,
     cavity: true,
     rows: [
@@ -479,7 +479,7 @@ export const LEVELS = [
     ],
   },
   {
-    name: 'O.M.E.G.A.',
+    name: 'Kronik Sinüzit',
     music: 2,
     /**
      * Boss encounter. `rows` is empty on purpose: there is no brick wall, so

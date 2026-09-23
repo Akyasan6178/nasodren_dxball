@@ -63,33 +63,47 @@ const tipTitleY = () => DESIGN.height / 2 + ART_CLEARANCE;
 const FONT_STACK = 'Oxanium, ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
 /**
- * Cyclamen tips — shown under `loading3` (the cyclamen flower).
+ * Cyclamen/saponin tips — shown under `loading3` (the cyclamen flower).
  *
  * Shared with revive-scene.js, which tracks its own history against this
  * same list: ReviveScene's centrepiece is always the cyclamen (siklement.png),
  * so it never needed a per-image pool of its own the way TransitionScene now
  * does — see `TIPS_BY_KEY` below.
+ *
+ * Rewritten for Revizyon Paketi 13 around the mechanism itself — the natural
+ * saponins in cyclamen tubers stimulating drainage — rather than the more
+ * general herbal-history tips this replaced. Grounded against
+ * yasasinsaglik.com/siklamen (the CHRONOS trial figure in particular).
  */
 export const TIPS = [
-  'Siklamen çiçeği özütü (saponin), burun mukozasında refleks bir etki yaratarak sinüslerde biriken mukusun doğal yollarla atılmasını sağlar.',
-  'Siklamen bitkisinin yumrularından elde edilen bu özüt, kana karışmadan sadece lokal olarak burun boşluğunda etki gösterir.',
-  'Antik çağlardan beri tıbbi amaçlarla kullanılan siklamen, günümüzde rinosinüzit tedavisinde bitkisel bir çözüm olarak öne çıkmaktadır.',
-  'Siklamen özütü uygulandığında, burun içindeki silyaların hareketliliğini artırarak sinüslerin temizlenme sürecini hızlandırır.',
-  "Doğada genellikle gölgelik orman altlarında yetişen siklamen, halk arasında 'tavşankulağı' olarak da bilinir.",
+  'Siklamen yumrularındaki doğal saponinler burun mukozasını nazikçe uyararak salgı akışını artırır ve tıkanan sinüsün doğal yoldan boşalmasını sağlar.',
+  '317 hastayla yapılan CHRONOS çalışmasında siklamen özütü, orta şiddetli kronik sinüzit ataklarında antibiyotik kadar etkili bulundu.',
+  'Sinüzit büyük çoğunlukla viral olduğu için antibiyotik fayda sağlamazken, siklamen özütü doğal drenajı destekleyerek gerçek bir alternatif sunar.',
 ];
 
-/** Sinüzit, iltihap ve virüsler — shown under `loading1` (the virus). */
+/**
+ * Viral sinüzit ve antibiyotik direnci — shown under `loading1` (the virus).
+ * Grounded against yasasinsaglik.com/antibiyotik-direnci (CDC/Cochrane
+ * figures) — replaces Paket 7's more general "what sinusitis is" tips with
+ * the specific viral-cause / antibiotics-don't-help message this pivot is
+ * built around.
+ */
 const TIPS_VIRUS = [
-  'Sinüzit, burun ve sinüs boşluklarını kaplayan mukozanın iltihaplanmasıdır; vakaların büyük bölümü bir üst solunum yolu virüsüyle başlar.',
-  'Virüsler sinüs kanallarının iç yüzeyindeki mukozayı şişirerek doğal drenaj açıklıklarını daraltır ve mukusun içeride birikmesine yol açar.',
-  'Akut viral sinüzit genellikle 7-10 gün içinde kendiliğinden geriler; belirtilerin bu sürenin ötesinde şiddetlenmesi bakteriyel bir sürece işaret edebilir.',
+  "Akut sinüzit vakalarının %90-98'i viraldir; virüslere karşı antibiyotiklerin hiçbir etkisi yoktur.",
+  'Burun akıntısının rengi tek başına bakteriyel enfeksiyon kanıtı değildir; yeşil veya sarı akıntı da viral sinüzitte sıkça görülür.',
+  'Gereksiz yere alınan her antibiyotik dozu iyileşmeyi hızlandırmaz — yalnızca yan etki riskini ve direnç birikimini artırır.',
 ];
 
-/** Genel vücut sağlığı, yorgunluk ve bağışıklık — shown under `loading2` (the heart). */
+/**
+ * Antibiyotik direncinin küresel bedeli ve bağışıklık sistemi — shown under
+ * `loading2` (the heart). Same source as TIPS_VIRUS; this pool carries the
+ * scale of the resistance problem and the case for letting the immune
+ * system do the work, rather than restating the viral-cause fact twice.
+ */
 const TIPS_HEART = [
-  'Kronikleşen sinüzit, bağışıklık sisteminin sürekli düşük düzeyde iltihapla uğraşmasına yol açarak günlük enerji seviyesini düşürebilir.',
-  'Sinüs tıkanıklığı gece boyunca rahat nefes almayı zorlaştırır; bozulan uyku kalitesi ertesi gün hissedilen yorgunluğun başlıca sebeplerindendir.',
-  'Güçlü ve dengeli bir bağışıklık sistemi, sinüslerdeki mukus birikimini daha hızlı temizleyerek iltihabın kronikleşmesini önlemede kilit rol oynar.',
+  "Antibiyotik direnci artık soyut bir tehdit değil: 2021'de dünya genelinde yaklaşık 4.7 milyon ölümle ilişkilendirildi.",
+  "İzlenen bakteri-antibiyotik kombinasyonlarının %40'ında direnç son yıllarda yükseliyor — her gereksiz kullanım bu tabloyu büyütüyor.",
+  'Bağışıklık sisteminiz viral bir sinüzitle mücadele edebilecek şekilde tasarlanmıştır; ona zaman tanımak çoğu zaman en etkili tedavidir.',
 ];
 
 /** Which tip pool belongs under which centrepiece — see CENTER_KEYS above. */

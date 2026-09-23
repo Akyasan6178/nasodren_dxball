@@ -37,8 +37,8 @@ const CORNER_Y = 20;
  * fresh brick layout for that level, exactly like choosing it again from
  * Level Select, but continuing the run rather than starting one.
  *
- * `run.usedTips` is what keeps the five cyclamen facts from repeating across
- * a single playthrough's revives: it lives on the `run` object threaded
+ * `run.usedTips` is what keeps TIPS's cyclamen/saponin facts from repeating
+ * across a single playthrough's revives: it lives on the `run` object threaded
  * through every GameScene, exactly like `score` and `lives` already do, so it
  * survives the level transitions in between.
  */
@@ -102,8 +102,8 @@ export class ReviveScene extends Scene {
   _buildTip() {
     const used = this.run.usedTips ?? (this.run.usedTips = []);
     const available = TIPS.map((_, i) => i).filter((i) => !used.includes(i));
-    // RUN.maxRevives is always less than TIPS.length, so this never actually
-    // runs dry; the fallback just means a repeat is better than no tip at all.
+    // RUN.maxRevives never exceeds TIPS.length, so this never actually runs
+    // dry; the fallback just means a repeat is better than no tip at all.
     const pool = available.length ? available : TIPS.map((_, i) => i);
     const idx = pool[Math.floor(cosmeticRandom() * pool.length)];
     used.push(idx);
