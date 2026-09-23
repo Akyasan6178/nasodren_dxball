@@ -245,15 +245,16 @@ export class GameScene extends Scene {
 
     /**
      * Level-wide clock for the dynamic mechanics in bricks.js: a repeating
-     * brick respawn every LEVEL_TIMER.spawnInterval seconds, and a one-shot
-     * difficulty buff at LEVEL_TIMER.buffAt. A plain constructor field, so
+     * brick respawn every LEVEL_TIMER.spawnInterval seconds, and a difficulty
+     * buff at each of LEVEL_TIMER.buffTimes. A plain constructor field, so
      * Restart Level, Revive and advancing to the next level all reset it for
      * free — every one of those builds a fresh GameScene rather than reusing
      * this one.
      */
     this.levelTimer = 0;
     this._spawnTick = 0;
-    this._buffed = false;
+    /** How many of LEVEL_TIMER.buffTimes have already fired this level. */
+    this._buffsFired = 0;
   }
 
   // --- setup ---------------------------------------------------------------
@@ -1150,7 +1151,7 @@ export class GameScene extends Scene {
    * Two dynamic mechanics on one clock, both defined on `brickField` (see
    * bricks.js) so this method stays a scheduler rather than a second copy of
    * their rules: a brick respawn every `LEVEL_TIMER.spawnInterval` seconds,
-   * and a once-per-level HP buff at `LEVEL_TIMER.buffAt`.
+   * and an HP buff at each of `LEVEL_TIMER.buffTimes` (60s, then 120s).
    *
    * Never called while paused — `update()` returns before reaching this line
    * whenever `this.paused` is true — and reset for free on every fresh
@@ -1163,7 +1164,6 @@ export class GameScene extends Scene {
     if (this.state === 'clear') return;
 
     this.levelTimer += dt;
-    this.brickField.tickBuffs(dt);
 
     const tick = Math.floor(this.levelTimer / LEVEL_TIMER.spawnInterval);
     if (tick > this._spawnTick) {
@@ -1173,8 +1173,15 @@ export class GameScene extends Scene {
       this.brickField.spawnBricks(count);
     }
 
-    if (!this._buffed && this.levelTimer >= LEVEL_TIMER.buffAt) {
-      this._buffed = true;
+    // buffTimes is short and sorted, so firing every entry the clock has
+    // already passed is just walking forward from wherever it stopped —
+    // never re-checking one already spent, never skipping one dt happens to
+    // jump past.
+    while (
+      this._buffsFired < LEVEL_TIMER.buffTimes.length &&
+      this.levelTimer >= LEVEL_TIMER.buffTimes[this._buffsFired]
+    ) {
+      this._buffsFired++;
       this.brickField.buffAllBricks();
     }
   }

@@ -37,8 +37,12 @@
       }
 
       /* Every HTML overlay starts hidden and is revealed by main.js once the
-         renderer has painted its first frame. */
-      #ui-layer {
+         renderer has painted its first frame — style.css's `body.is-ready
+         .ui-layer` rule is what does the revealing, so this has to match it
+         class-for-class rather than reaching for the shorter `#ui-layer`: an
+         ID selector's specificity beats a class one outright, and would keep
+         this permanently hidden no matter what `body.is-ready` said. */
+      .ui-layer {
         display: none;
       }
 
@@ -85,6 +89,23 @@
           <span class="mode__option" data-mode="turbo">Turbo</span>
         </span>
       </button>
+
+      <!-- ResultsScene's high-score name field. Invisible and inert until that
+           scene positions and activates it — see results-scene.js and the
+           .name-input rules in style.css. A real, focusable DOM input is the
+           only thing that raises a mobile virtual keyboard; the Pixi text next
+           to it is what the player actually sees themselves type. -->
+      <input
+        id="name-input"
+        class="name-input"
+        type="text"
+        inputmode="text"
+        autocomplete="off"
+        autocapitalize="characters"
+        autocorrect="off"
+        spellcheck="false"
+        aria-label="Skor tablosu için isim"
+      />
     </div>
 
     <div id="boot" role="status">Loading&hellip;</div>

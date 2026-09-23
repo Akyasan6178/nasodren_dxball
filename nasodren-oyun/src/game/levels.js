@@ -80,9 +80,11 @@
  *   DIFFICULTY CANNOT COME FROM CELL COUNT. With a ceiling of fourteen the
  *   curve is short. What is left is bone placement, which zones are occupied,
  *   how hollow the middle of a chamber is left, and the corruption meter's
- *   `buffAllBricks`, which raises every cell to 2 and then 3 hits mid-level —
- *   also the only thing that puts brick2.png and brick3.png on screen, since a
- *   digit in a layout is always a one-hit cell.
+ *   `buffAllBricks`, fired at 60s and again at 120s (see LEVEL_TIMER.buffTimes
+ *   in config.js), which raises every cell to 2 and then 3 hits mid-level —
+ *   also the only thing that puts brick2.png/brick3.png (undamaged) and
+ *   cracked1.png/cracked2.png (damaged, still alive) on screen, since a digit
+ *   in a layout is always a one-hit cell.
  *
  * BONE SITS ON A CHAMBER WALL, and that is a rule with teeth rather than an
  * exemption. A sinus is a hole in the facial skeleton, so bone is by

@@ -82,7 +82,7 @@ import { Assets } from 'pixi.js';
  *                      sitting there.
  *
  *   brick1/2/3.png     93x45 drawn into cells from 46x18 down to 18x17 now
- *                      that half and small variants also use the tier art
+ *   cracked1/2.png     that half and small variants also use the tier art
  *                      (see textureKeyFor). The small end is a 0.2x
  *                      minification — well past where one bilinear tap has
  *                      anything useful to say.
@@ -112,6 +112,8 @@ export const manifest = {
         { alias: 'brickTier1', src: 'brick1.png', data: SMOOTH_DOWNSCALE },
         { alias: 'brickTier2', src: 'brick2.png', data: SMOOTH_DOWNSCALE },
         { alias: 'brickTier3', src: 'brick3.png', data: SMOOTH_DOWNSCALE },
+        { alias: 'crackedTier1', src: 'cracked1.png', data: SMOOTH_DOWNSCALE },
+        { alias: 'crackedTier2', src: 'cracked2.png', data: SMOOTH_DOWNSCALE },
         { alias: 'loading2', src: 'loading2.png' },
         { alias: 'loading3', src: 'loading3.png' },
         { alias: 'siklement', src: 'siklement.png' },

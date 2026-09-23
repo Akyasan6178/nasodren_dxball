@@ -212,6 +212,37 @@ body[data-scene="menu"] .mode {
   border-color: rgba(255, 210, 63, 0.5);
 }
 
+/* ======================================================== name entry ==== */
+
+/* Invisible HTML input overlaid on ResultsScene's Pixi-rendered name field.
+   A real DOM input is the only thing a mobile browser will raise its virtual
+   keyboard for — a canvas and a `window` keydown listener never can. Kept
+   fully transparent because the Pixi caret/text next to it already shows
+   what's typed; this element exists purely to catch the tap and receive
+   real keystrokes. `opacity: 0` rather than `visibility`/`display` — both of
+   those pull an element out of hit-testing and focusability, which would
+   defeat the entire point. Hidden and click-through (`display: none`) until
+   ResultsScene sizes, positions and activates it. */
+.name-input {
+  position: absolute;
+  display: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  /* Below 16px, iOS Safari zooms the page in on focus. */
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.name-input.is-active {
+  display: block;
+  pointer-events: auto;
+}
+
 /* ====================================================== portrait ======== */
 
 /* THERE IS NO ROTATE PROMPT, AND THERE IS NOT GOING TO BE ONE. The stylesheet

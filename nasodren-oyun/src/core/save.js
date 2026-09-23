@@ -1,4 +1,9 @@
-const KEY = 'brickstorm.save.v1';
+// Renamed for Revizyon Paketi 14 — a deliberate one-time reset of every
+// existing player's local save (high scores, unlock progress, remembered
+// name, all of it — this is the whole save blob, not just the score list)
+// so old test scores stop showing up for anyone who already has the previous
+// key in their browser. Bump the version suffix again for any future reset.
+const KEY = 'sinus_ac_local_scores_v1';
 
 /** Local high-score list length. Kept short on purpose — see `addScore`. */
 const LOCAL_HIGH_SCORE_MAX = 5;

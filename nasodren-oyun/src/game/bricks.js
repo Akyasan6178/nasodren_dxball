@@ -1,8 +1,6 @@
 import { Container, Sprite } from 'pixi.js';
-import { BRICK, BRICK_H, BRICK_W, BUFF_PULSE, COLORS, GRID, SCORE } from './config.js';
+import { BRICK, BRICK_H, BRICK_W, COLORS, GRID, SCORE } from './config.js';
 import { TEX, textureKeyFor } from './textures.js';
-import { lerpColor } from './sinus.js';
-import { cosmeticRandom } from '../core/rng.js';
 
 /**
  * Brick kinds. Only two remain — everything else (silver/gold/explosive/
@@ -104,12 +102,6 @@ export class Brick extends Sprite {
     this.width = this.bw;
     this.height = this.bh;
 
-    /** Set once by BrickField.buffAllBricks; see applyBuff()/tickPulse(). */
-    this.buffed = false;
-    this._pulseT = 0;
-
-    /** Damage decal, created lazily the first time this brick survives a hit. */
-    this.crack = null;
   }
 
   get centerX() {
@@ -121,85 +113,28 @@ export class Brick extends Sprite {
   }
 
   /**
-   * Swaps in the tier texture (brick1/2/3.png) matching this brick's current
-   * `hits` — see `textureKeyFor`. Paired with the crack decal from
-   * `_updateCrack`: the tier says which image this is, the crack says this
-   * particular one has already been hit once.
+   * Swaps in the texture matching this brick's current `hits` against its
+   * `maxHits` — see `textureKeyFor`. Undamaged shows the tier art
+   * (brick1/2/3.png); damaged but still alive shows the cracked art instead
+   * (cracked1/2.png) — no separate decal sprite, this is the whole texture.
    */
-  _applyTierTexture() {
-    const key = textureKeyFor(this.kind, this.colorIndex, this.shape, this.hits);
+  refreshDamage() {
+    const key = textureKeyFor(this.kind, this.colorIndex, this.shape, this.hits, this.maxHits);
     if (this.texture === TEX[key]) return;
     this.texture = TEX[key];
-    // A tier swap can jump between textures of different native size (a
-    // baked shape-variant vs. the fixed-size tier art), so the fit has to be
-    // reapplied every time, not just once at construction.
+    // A texture swap can jump between images of different native size (a
+    // baked shape-variant vs. the fixed-size tier/cracked art), so the fit
+    // has to be reapplied every time, not just once at construction.
     this.width = this.bw;
     this.height = this.bh;
   }
 
   /**
-   * Show accumulated damage on multi-hit bricks: a tier drop plus a crack
-   * decal. A cell only ever reaches more than one hit via the 60s buff (see
-   * `BrickField.buffAllBricks`), so this is what makes a hardened cell that
-   * has started to give way readable at a glance, on top of the tougher
-   * tiers already looking close enough in colour to blur together mid-rally.
-   */
-  refreshDamage() {
-    this._applyTierTexture();
-    this._updateCrack();
-  }
-
-  /**
-   * Lays a crack sprite over the cell once it has taken at least one hit
-   * without breaking. Stretched onto `bw`/`bh` exactly like the tier texture
-   * itself, so it fits whatever shape this brick actually is.
-   */
-  _updateCrack() {
-    const taken = this.maxHits - this.hits;
-
-    if (taken <= 0) {
-      if (this.crack) this.crack.visible = false;
-      return;
-    }
-
-    if (!this.crack) {
-      this.crack = new Sprite(TEX.crack1);
-      // The parent is anchored at 0.5, so a child at the origin sits on the
-      // cell's centre.
-      this.crack.anchor.set(0.5);
-      this.addChild(this.crack);
-    }
-
-    this.crack.visible = true;
-    this.crack.texture = taken >= 2 ? TEX.crack2 : TEX.crack1;
-    this.crack.width = this.bw;
-    this.crack.height = this.bh;
-  }
-
-  /**
-   * Marks this brick as buffed (see `BrickField.buffAllBricks`) and starts its
-   * permanent breathing pulse — unlike the damage tier, this never reverts
-   * for the rest of the level, which is the whole point: the player has to be
-   * able to tell a hardened cell from an ordinary one at a glance at any
-   * point later in the rally, not just in the second after it happened.
-   *
-   * The starting phase is randomised (cosmetic RNG — this never has to be
-   * reproducible) so a wave of bricks buffed on the same frame settle into an
-   * organic, unsynchronised breathing rather than pulsing in lockstep.
+   * Called by `BrickField.buffAllBricks` after it bumps `hits`/`maxHits`, to
+   * refresh this brick's texture to the new, tougher tier.
    */
   applyBuff() {
-    this.buffed = true;
-    this._pulseT = cosmeticRandom() * Math.PI * 2;
-    this._applyTierTexture();
-  }
-
-  /** Advances the buff breathing animation. Only ever called while `buffed`. */
-  tickPulse(dt) {
-    this._pulseT += dt * BUFF_PULSE.speed;
-
-    const s = 0.5 + 0.5 * Math.sin(this._pulseT); // 0..1 breathing envelope
-    this.alpha = BUFF_PULSE.alphaMin + (1 - BUFF_PULSE.alphaMin) * s;
-    this.tint = lerpColor(0xffffff, BUFF_PULSE.tint, BUFF_PULSE.tintMix);
+    this.refreshDamage();
   }
 
   snapshot() {
@@ -240,9 +175,6 @@ export class BrickField extends Container {
      * only guaranteed geometrically legal if it reuses one of those.
      */
     this._originalSpecs = [];
-
-    /** Every currently-buffed brick, ticked once a frame for its breathing pulse. */
-    this._buffedBricks = new Set();
 
     for (let r = 0; r < this.rows; r++) {
       const line = levelDef.rows[r];
@@ -400,12 +332,10 @@ export class BrickField extends Container {
   }
 
   /**
-   * 60s dynamic mechanic, fired once per level: every currently alive
-   * breakable brick gains +1 HP (both `hits` and `maxHits`, dropping it to a
-   * tougher tier texture) and starts a permanent breathing pulse — see
-   * `Brick.applyBuff` — that lasts for the rest of the level, not just a
-   * moment, so a hardened cell stays legible as one all the way to the brick
-   * that finally breaks it.
+   * The corruption clock's HP buff, fired at each of `LEVEL_TIMER.buffTimes`
+   * (60s, then 120s): every currently alive breakable brick gains +1 HP (both
+   * `hits` and `maxHits`), dropping it to a tougher tier texture — see
+   * `Brick.applyBuff`.
    *
    * Skips bone — already infinite — via `breakable`.
    */
@@ -416,25 +346,6 @@ export class BrickField extends Container {
       brick.hits += 1;
       brick.maxHits += 1;
       brick.applyBuff();
-      this._buffedBricks.add(brick);
-    }
-  }
-
-  /**
-   * Advances every buffed brick's breathing pulse. Cheap outside a level that
-   * has actually reached the 60s mark: the set is empty until then.
-   *
-   * A buffed brick can still be destroyed later in the rally — `_remove`
-   * never has to know that, this just drops it from the set the first time it
-   * notices, rather than animating a Sprite nothing is looking at forever.
-   */
-  tickBuffs(dt) {
-    for (const brick of this._buffedBricks) {
-      if (brick.removed) {
-        this._buffedBricks.delete(brick);
-        continue;
-      }
-      brick.tickPulse(dt);
     }
   }
 }

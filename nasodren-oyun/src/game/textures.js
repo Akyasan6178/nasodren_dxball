@@ -50,8 +50,7 @@ function shade(color, amount) {
  * away, which is three concentric round-rects and no polygon maths.
  *
  * Alpha lives on the texture rather than on the Sprite so `Brick.alpha` stays
- * free for what already owns it — the Sneeze loosening survivors, and a
- * buffed cell's permanent breathing pulse (see BUFF_PULSE in config.js).
+ * free for what already owns it — the Sneeze loosening survivors.
  */
 function brickFace(color, opts = {}) {
   const {
@@ -149,54 +148,6 @@ function boneFace() {
       .stroke({ width: 1.4, color: glowColor, alpha: 0.16 });
   }
   g.roundRect(0.5, 0.5, w - 1, h - 1, radius).stroke({ width: 1.8, color: glowColor, alpha: 0.95 });
-
-  return g;
-}
-
-/**
- * A damage decal, laid over a brick that has taken at least one hit but
- * survived it. The HP-tier art alone (brick1/2/3.png) already changes which
- * image a brick shows, but the three tiers read close enough in colour that
- * a player mid-rally was missing the swap — this is the second, unmissable
- * cue layered on top: real cracks, not just a different shade of pill.
- *
- * Baked at one fixed full-cell size regardless of which shape actually wears
- * it. `Brick._updateCrack` stretches the sprite onto `bw`/`bh` exactly like
- * it already does for the tier texture, so a half or small cell gets the
- * same crack, proportionally squashed — consistent with how the tier art
- * itself is fit to every shape now.
- *
- * `level` 1 is one hairline seam (one hit taken); `level` 2 is a wider spread
- * plus a second seam (two or more taken), so the decal itself communicates
- * how close the cell is to breaking, not just that it is damaged at all.
- */
-function crackOverlay(level) {
-  const w = BRICK_W;
-  const h = BRICK_H;
-  const g = new Graphics();
-
-  const seams =
-    level === 1
-      ? [[w * 0.34, 2, w * 0.46, h - 3]]
-      : [
-          [w * 0.3, 2, w * 0.44, h - 3],
-          [w * 0.62, 1, w * 0.5, h - 2],
-          [w * 0.72, h * 0.4, w * 0.9, h - 4],
-        ];
-
-  for (const [x1, y1, x2, y2] of seams) {
-    // A slight kink partway along each seam, not a straight cut — a real
-    // fracture does not run in one line.
-    const mx = (x1 + x2) / 2 + (level === 1 ? 2.5 : -2);
-    const my = (y1 + y2) / 2;
-
-    g.moveTo(x1, y1).lineTo(mx, my).lineTo(x2, y2).stroke({ width: 1.6, color: 0x000000, alpha: 0.6 });
-    g.moveTo(x1, y1).lineTo(mx, my).lineTo(x2, y2).stroke({ width: 0.6, color: 0x000000, alpha: 0.9 });
-  }
-
-  // A faint overall darkening so a damaged cell reads as bruised even at a
-  // glance that misses the seams themselves.
-  g.roundRect(0, 0, w, h, BRICK.radius).fill({ color: 0x000000, alpha: level === 1 ? 0.08 : 0.16 });
 
   return g;
 }
@@ -361,8 +312,11 @@ export function buildTextures(renderer) {
 
   TEX.brickBone = bake(renderer, boneFace());
 
-  TEX.crack1 = bake(renderer, crackOverlay(1));
-  TEX.crack2 = bake(renderer, crackOverlay(2));
+  // Fallbacks for the two cracked-tier images — see textureKeyFor. Same
+  // contract as the three brickTierN placeholders just above: only visible
+  // until cracked1/2.png land, then applyImageAssets() overwrites both keys.
+  TEX.crackedTier1 = bake(renderer, brickFace(0x8a1030));
+  TEX.crackedTier2 = bake(renderer, brickFace(0x4a0818));
 
   // TransitionScene's two flanking loading icons. Same fallback contract as
   // everything else in this file: a plain baked placeholder until
@@ -478,6 +432,13 @@ export function applyImageAssets() {
   const brickTier3 = Assets.get('brickTier3');
   if (brickTier3) TEX.brickTier3 = brickTier3;
 
+  // The cracked-tier art — see textureKeyFor. Same fallback contract as the
+  // three brickTierN lines just above.
+  const crackedTier1 = Assets.get('crackedTier1');
+  if (crackedTier1) TEX.crackedTier1 = crackedTier1;
+  const crackedTier2 = Assets.get('crackedTier2');
+  if (crackedTier2) TEX.crackedTier2 = crackedTier2;
+
   const loading2 = Assets.get('loading2');
   if (loading2) TEX.loading2 = loading2;
   const loading3 = Assets.get('loading3');
@@ -502,11 +463,26 @@ export function applyImageAssets() {
 export const brickKey = (colorIndex, shape) =>
   shape === 'full' ? `brick${colorIndex}` : `brick${colorIndex}_${shape}`;
 
-/** Which HP maps to which tier image — 1 hit left, 2, or 3-and-up. */
-function tierKeyFor(hits) {
-  if (hits <= 1) return 'brickTier1';
-  if (hits === 2) return 'brickTier2';
+/** Which max HP maps to which full-health tier image — 1, 2, or 3-and-up. */
+function tierKeyFor(maxHits) {
+  if (maxHits <= 1) return 'brickTier1';
+  if (maxHits === 2) return 'brickTier2';
   return 'brickTier3';
+}
+
+/**
+ * Which HITS LEFT maps to which cracked image, once a brick has taken at
+ * least one hit without breaking. Keyed by remaining hits rather than
+ * maxHits: `hits === 1` is universally "one more hit and this breaks",
+ * whatever tier it started from, so it always gets crackedTier1 — the more
+ * damaged-looking of the only two cracked images that exist (cracked1/2.png
+ * — see assets.js). Anything damaged but not yet on that last hit (only
+ * possible for a 3-hit brick, caught mid-fall at hits === 2) gets
+ * crackedTier2 instead, so a 3-hit brick's two damage stages read as two
+ * distinct steps rather than one repeated image.
+ */
+function crackedKeyFor(hits) {
+  return hits <= 1 ? 'crackedTier1' : 'crackedTier2';
 }
 
 /**
@@ -530,9 +506,11 @@ function tierKeyFor(hits) {
  * the source instead would keep it, at the cost of slicing through the art's
  * own rounded edges — worth revisiting if the squash reads badly at speed.
  *
- * A standard cell resolves by its CURRENT `hits` every time
- * `refreshDamage`/`applyBuff` calls in, which is exactly the information the
- * tier art carries. Bone keeps its own fixed texture regardless of hits,
+ * A standard cell resolves by its CURRENT `hits` against its `maxHits` every
+ * time `refreshDamage`/`applyBuff` calls in. Undamaged (`hits === maxHits`)
+ * shows the full-health tier art sized by `maxHits`; damaged but still alive
+ * (`hits < maxHits`) shows the cracked art instead, sized by `hits` itself —
+ * see `crackedKeyFor`. Bone keeps its own fixed texture regardless of hits,
  * because it is never meant to look like it is running low — it never is.
  *
  * The palette-coloured shape bakes are still built in `buildTextures()` and are
@@ -540,7 +518,7 @@ function tierKeyFor(hits) {
  * are the only art cut to the true half/small boxes, so they are what a crop-
  * based fix would be measured against.
  */
-export function textureKeyFor(kind, colorIndex, shape = 'full', hits = 1) {
+export function textureKeyFor(kind, colorIndex, shape = 'full', hits = 1, maxHits = hits) {
   if (kind === 'bone') return 'brickBone';
-  return tierKeyFor(hits);
+  return hits < maxHits ? crackedKeyFor(hits) : tierKeyFor(maxHits);
 }

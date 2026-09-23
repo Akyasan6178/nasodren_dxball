@@ -186,8 +186,8 @@ export class LevelSelectScene extends Scene {
 
     // Every breakable cell shows the actual tier-1 brick art (what it always
     // looks like at level start — mid-level tiers only ever appear via the
-    // 60s buff, which a static thumbnail cannot show anyway), tinted by the
-    // same palette colour `_specFor` would give it in the real level. Bone
+    // 60s/120s buffs, which a static thumbnail cannot show anyway), tinted by
+    // the same palette colour `_specFor` would give it in the real level. Bone
     // gets its own texture, untinted, same as on the real board.
     if (!level.boss) level.rows.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) {

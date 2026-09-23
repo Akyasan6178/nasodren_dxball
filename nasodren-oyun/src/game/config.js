@@ -362,10 +362,9 @@ export const GRID = {
  * congestion, so a passage that is still blocked still reads as hot.
  *
  * ALPHA IS BAKED INTO THE TEXTURE, not applied to the Sprite. `Brick.alpha`
- * is already spoken for twice over — the Sneeze reflex dims whatever
- * survives, and a buffed cell's permanent breathing pulse (see BUFF_PULSE)
- * writes it every frame — and a third writer would mean one silently
- * cancelling another. See textures.js.
+ * is already spoken for — the Sneeze reflex dims whatever survives — and a
+ * second writer would mean one silently cancelling the other. See
+ * textures.js.
  *
  * Bone opts out and stays opaque: it is the one thing on the board the fluid
  * never dissolves, and that has to be legible before the player spends a rally
@@ -635,24 +634,13 @@ export const LEVEL_TIMER = {
   /** How many bricks a respawn tick fills in, chosen at random per tick. */
   spawnMin: 2,
   spawnMax: 3,
-  /** Seconds at which every breakable brick gains +1 HP, once per level. */
-  buffAt: 60,
-};
-
-/**
- * The permanent "breathing" look a brick gets from the 60s buff — see
- * Brick.applyBuff/tickPulse in bricks.js. Unlike the old flash this never
- * reverts, so it stays tunable on its own rather than as a fading duration.
- */
-export const BUFF_PULSE = {
-  /** Radians/second of the breathing cycle. */
-  speed: 4,
-  /** Lowest point of the alpha breath — never fully transparent. */
-  alphaMin: 0.72,
-  /** Permanent tint shift toward the game's own neon accent. */
-  tint: 0x35d0d8,
-  /** How strongly that colour is blended in, 0..1. */
-  tintMix: 0.55,
+  /**
+   * Seconds at which every breakable brick gains +1 HP — once at 60s (every
+   * 1-hit cell becomes a 2-hit one) and again at 120s (2-hit becomes 3-hit).
+   * Nothing beyond the second entry: three hits is as tough as a cell gets,
+   * matching the three tier images (brick1/2/3.png) that exist to show it.
+   */
+  buffTimes: [60, 120],
 };
 
 /** Fixed simulation guard: never integrate more than this in one frame. */
