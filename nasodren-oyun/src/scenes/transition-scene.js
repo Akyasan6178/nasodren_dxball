@@ -72,12 +72,15 @@ const FONT_STACK = 'Oxanium, ui-monospace, "SF Mono", Menlo, Consolas, "Courier 
  *
  * Rewritten for Revizyon Paketi 13 around the mechanism itself — the natural
  * saponins in cyclamen tubers stimulating drainage — rather than the more
- * general herbal-history tips this replaced. Grounded against
- * yasasinsaglik.com/siklamen (the CHRONOS trial figure in particular).
+ * general herbal-history tips this replaced; grounded against
+ * yasasinsaglik.com/siklamen. Revised again shortly after to drop the one
+ * line that cited a named study (CHRONOS) in favour of a plain mechanism
+ * statement with no source attached — the other two tips never named one
+ * either, so this just brings the third in line with them.
  */
 export const TIPS = [
   'Siklamen yumrularındaki doğal saponinler burun mukozasını nazikçe uyararak salgı akışını artırır ve tıkanan sinüsün doğal yoldan boşalmasını sağlar.',
-  '317 hastayla yapılan CHRONOS çalışmasında siklamen özütü, orta şiddetli kronik sinüzit ataklarında antibiyotik kadar etkili bulundu.',
+  'Siklamen özündeki saponinler kimyasal bir ilaç gibi değil, doğal bir refleksle çalışır: mukusu inceltip akışını hızlandırarak sinüs içindeki baskıyı adım adım hafifletir.',
   'Sinüzit büyük çoğunlukla viral olduğu için antibiyotik fayda sağlamazken, siklamen özütü doğal drenajı destekleyerek gerçek bir alternatif sunar.',
 ];
 
@@ -95,15 +98,15 @@ const TIPS_VIRUS = [
 ];
 
 /**
- * Antibiyotik direncinin küresel bedeli ve bağışıklık sistemi — shown under
- * `loading2` (the heart). Same source as TIPS_VIRUS; this pool carries the
- * scale of the resistance problem and the case for letting the immune
- * system do the work, rather than restating the viral-cause fact twice.
+ * Antibiyotik direncinin küresel bedeli — shown under `loading2` (the
+ * heart). Same source as TIPS_VIRUS; this pool carries the scale of the
+ * resistance problem in numbers rather than restating the viral-cause fact
+ * twice. Two entries, not three — the original third (an immune-system
+ * framing) was cut rather than replaced.
  */
 const TIPS_HEART = [
-  "Antibiyotik direnci artık soyut bir tehdit değil: 2021'de dünya genelinde yaklaşık 4.7 milyon ölümle ilişkilendirildi.",
-  "İzlenen bakteri-antibiyotik kombinasyonlarının %40'ında direnç son yıllarda yükseliyor — her gereksiz kullanım bu tabloyu büyütüyor.",
-  'Bağışıklık sisteminiz viral bir sinüzitle mücadele edebilecek şekilde tasarlanmıştır; ona zaman tanımak çoğu zaman en etkili tedavidir.',
+  "Antibiyotik direnci artık soyut bir tehdit değil, somut ve de ciddi bir tehdit: 2021'de dünya genelinde yaklaşık 4.7 milyon ölümle ilişkilendirildi, gün geçtikçe de sayılar arttı.",
+  "İzlenen bakteri-antibiyotik kombinasyonlarının %40'ında direnç son yıllarda yükseliyor — her gereksiz antibiyotik kullanımı bu oranları büyütüyor.",
 ];
 
 /** Which tip pool belongs under which centrepiece — see CENTER_KEYS above. */
