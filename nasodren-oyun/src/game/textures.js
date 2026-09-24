@@ -471,18 +471,18 @@ function tierKeyFor(maxHits) {
 }
 
 /**
- * Which HITS LEFT maps to which cracked image, once a brick has taken at
- * least one hit without breaking. Keyed by remaining hits rather than
- * maxHits: `hits === 1` is universally "one more hit and this breaks",
- * whatever tier it started from, so it always gets crackedTier1 — the more
- * damaged-looking of the only two cracked images that exist (cracked1/2.png
- * — see assets.js). Anything damaged but not yet on that last hit (only
- * possible for a 3-hit brick, caught mid-fall at hits === 2) gets
- * crackedTier2 instead, so a 3-hit brick's two damage stages read as two
- * distinct steps rather than one repeated image.
+ * Which HITS TAKEN maps to which cracked image, once a brick has taken at
+ * least one hit without breaking. Keyed by damage taken (`maxHits - hits`)
+ * rather than hits left, so it reads as increasing severity: one hit taken —
+ * whether that's a 2-hit brick's only damage stage or a 3-hit brick's first —
+ * gets crackedTier1, and two hits taken (only possible for a 3-hit brick, on
+ * its last life) gets crackedTier2, the more shattered-looking of the only
+ * two cracked images that exist (cracked1/2.png — see assets.js). A 3-hit
+ * brick's two damage stages this way read as two distinct steps rather than
+ * one repeated image.
  */
-function crackedKeyFor(hits) {
-  return hits <= 1 ? 'crackedTier1' : 'crackedTier2';
+function crackedKeyFor(taken) {
+  return taken <= 1 ? 'crackedTier1' : 'crackedTier2';
 }
 
 /**
@@ -509,9 +509,10 @@ function crackedKeyFor(hits) {
  * A standard cell resolves by its CURRENT `hits` against its `maxHits` every
  * time `refreshDamage`/`applyBuff` calls in. Undamaged (`hits === maxHits`)
  * shows the full-health tier art sized by `maxHits`; damaged but still alive
- * (`hits < maxHits`) shows the cracked art instead, sized by `hits` itself —
- * see `crackedKeyFor`. Bone keeps its own fixed texture regardless of hits,
- * because it is never meant to look like it is running low — it never is.
+ * (`hits < maxHits`) shows the cracked art instead, sized by how many hits
+ * have been taken so far — see `crackedKeyFor`. Bone keeps its own fixed
+ * texture regardless of hits, because it is never meant to look like it is
+ * running low — it never is.
  *
  * The palette-coloured shape bakes are still built in `buildTextures()` and are
  * now unreferenced by this function. They are deliberately not deleted: they
@@ -520,5 +521,5 @@ function crackedKeyFor(hits) {
  */
 export function textureKeyFor(kind, colorIndex, shape = 'full', hits = 1, maxHits = hits) {
   if (kind === 'bone') return 'brickBone';
-  return hits < maxHits ? crackedKeyFor(hits) : tierKeyFor(maxHits);
+  return hits < maxHits ? crackedKeyFor(maxHits - hits) : tierKeyFor(maxHits);
 }
